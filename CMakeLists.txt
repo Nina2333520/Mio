@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(MioNo VERSION 6.0.0)
+project(MioNo VERSION 6.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,56 +24,25 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# 图标选择
-# ---------------------------------------------------------------------------
-# ⚠️ 踩过的坑，别改回去：
-# JUCE 的 juce_add_gui_app 里 ICON_BIG 必须传一个【真实存在】的文件路径。
-#   - 完全不传 → JUCE 内部属性变成 "JUCE_ICON_BIG-NOTFOUND"，
-#     而它在 CMake 里是【真值】，会被当图标路径去检查，直接 FATAL_ERROR。
-#     报错长这样：Could not find icon file:      （冒号后面看着是空白）
-#   - 传空字符串 → 同样触发上面的问题。
-# 因此这里永远传一个存在的文件：首选正式图标，备选占位图标。
-set(MIONO_ICON_MAIN "${CMAKE_CURRENT_SOURCE_DIR}/assets/app.ico")
-set(MIONO_ICON_FALLBACK "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-placeholder.ico")
-
-if (EXISTS "${MIONO_ICON_MAIN}")
-    set(MIONO_ICON "${MIONO_ICON_MAIN}")
-    message(STATUS "使用正式图标: ${MIONO_ICON}")
-elseif (EXISTS "${MIONO_ICON_FALLBACK}")
-    set(MIONO_ICON "${MIONO_ICON_FALLBACK}")
-    message(WARNING "正式图标缺失，使用占位图标: ${MIONO_ICON}")
-else()
-    message(FATAL_ERROR
-        "找不到任何图标文件。请确认 assets/ 目录完整：\n"
-        "  ${MIONO_ICON_MAIN}\n"
-        "  ${MIONO_ICON_FALLBACK}")
-endif()
-
-# 统一转成绝对路径（JUCE 内部会做一次，这里先做一次更保险）
-get_filename_component(MIONO_ICON_ABS "${MIONO_ICON}" ABSOLUTE)
-set(_miono_icon_exists FALSE)
-if (EXISTS "${MIONO_ICON_ABS}")
-    set(_miono_icon_exists TRUE)
-endif()
-
-# ---------------------------------------------------------------------------
 # 应用目标
 # ---------------------------------------------------------------------------
-# 打印诊断信息，方便在 CI 日志里核对
-message(STATUS "===== MioNo 配置诊断 =====")
-message(STATUS "CMAKE_CURRENT_SOURCE_DIR = ${CMAKE_CURRENT_SOURCE_DIR}")
-message(STATUS "CMAKE_CURRENT_BINARY_DIR = ${CMAKE_CURRENT_BINARY_DIR}")
-message(STATUS "选中的图标              = ${MIONO_ICON}")
-message(STATUS "图标绝对路径            = ${MIONO_ICON_ABS}")
-message(STATUS "图标是否存在            = ${_miono_icon_exists}")
-message(STATUS "==========================")
-
+# ⚠️⚠️ 这里【故意不传 ICON_BIG / ICON_SMALL】——别改回去！
+#
+# 为什么：JUCE 8 的 _juce_generate_icon() 会在「配置阶段」检查 ICON_BIG 指向的文件
+# 是否存在，只要它拿到的不是「真实存在的绝对路径」，就当场报：
+#     CMake Error at .../JUCEUtils.cmake:605 (message):
+#       Could not find icon file:
+# 而且报错里路径经常是空白的（日志里只看到冒号），极难排查 —— 我们在 CI 上被卡了 7 次。
+#
+# 所以策略改成：
+#   ① juce_add_gui_app 完全不传图标，JUCE 就不做任何图标检查；
+#   ② Windows 下我们自己生成一个 .rc 把 assets/app.ico 嵌进 exe（见文件末尾）。
+#      图标找不到也只是警告，绝不 fail。
 juce_add_gui_app(MioNo
     PRODUCT_NAME  "MioNo"
     COMPANY_NAME  "MioNo"
     VERSION       "6.0.0"
-    BUNDLE_ID     "com.miono.rack"
-    ICON_BIG      "${MIONO_ICON_ABS}")
+    BUNDLE_ID     "com.miono.rack")
 
 # 源码
 target_sources(MioNo PRIVATE
@@ -130,4 +99,60 @@ if (WIN32)
 
     target_link_libraries(MioNo PRIVATE
         winmm avrt ole32 oleaut32 uuid shell32 shlwapi version user32 gdi32)
+endif()
+
+# ---------------------------------------------------------------------------
+# 图标：自己嵌进 exe（绕开 JUCE 的图标检查，永远不会让构建失败）
+# ---------------------------------------------------------------------------
+# 候选顺序：
+#   ① 命令行/CI 传进来的 -DMIONO_ICON_FILE=...
+#   ② 仓库里的正式图标 assets/app.ico
+#   ③ 仓库里的占位图标 assets/app-placeholder.ico
+# 三个都没有 → 只警告，跳过图标，继续编译。
+set(_miono_icon_candidates
+    "${MIONO_ICON_FILE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/app.ico"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-placeholder.ico")
+
+set(MIONO_ICON "")
+foreach(_candidate IN LISTS _miono_icon_candidates)
+    if ((MIONO_ICON STREQUAL "") AND (EXISTS "${_candidate}"))
+        get_filename_component(MIONO_ICON "${_candidate}" ABSOLUTE)
+    endif()
+endforeach()
+
+message(STATUS "===== MioNo 配置诊断 =====")
+message(STATUS "CMAKE_CURRENT_SOURCE_DIR = ${CMAKE_CURRENT_SOURCE_DIR}")
+message(STATUS "CMAKE_CURRENT_BINARY_DIR = ${CMAKE_CURRENT_BINARY_DIR}")
+foreach(_candidate IN LISTS _miono_icon_candidates)
+    if (EXISTS "${_candidate}")
+        set(_candidate_exists YES)
+    else()
+        set(_candidate_exists NO)
+    endif()
+    message(STATUS "图标候选 存在=${_candidate_exists}  [${_candidate}]")
+endforeach()
+message(STATUS "最终选中的图标 = [${MIONO_ICON}]")
+message(STATUS "==========================")
+
+if (WIN32)
+    if (MIONO_ICON STREQUAL "")
+        message(WARNING "没有找到任何 .ico 文件，跳过图标（不影响编译）")
+    else()
+        # 用 configure_file 而不是 file(WRITE)：模板里的 @MIONO_ICON_NATIVE@ 是
+        # 原样替换（不做转义），所以带反斜杠的 Windows 路径不会出问题。
+        file(TO_NATIVE_PATH "${MIONO_ICON}" MIONO_ICON_NATIVE)
+        set(_miono_rc_template "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-icon.rc.in")
+        if (EXISTS "${_miono_rc_template}")
+            configure_file("${_miono_rc_template}"
+                           "${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc" @ONLY)
+            target_sources(MioNo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc")
+            message(STATUS "已生成图标资源脚本: ${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc")
+            message(STATUS "嵌入的图标: ${MIONO_ICON_NATIVE}")
+            # 这行会被 CI 抓出来显示成注解，方便在网页上一眼看到用了哪个图标
+            message(STATUS "MIONO_DIAG_ICON=${MIONO_ICON_NATIVE}")
+        else()
+            message(WARNING "缺少图标资源模板 ${_miono_rc_template}，跳过图标（不影响编译）")
+        endif()
+    endif()
 endif()

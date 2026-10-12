@@ -38,15 +38,16 @@ jobs:
           }
           Write-Output ""
           Write-Output "=== 图标文件检查 ==="
-          $ico = "assets/app.ico"
-          if (Test-Path $ico) {
-            $len = (Get-Item $ico).Length
-            Write-Output "app.ico 存在，大小 = $len 字节"
-            if ($len -lt 100) {
-              Write-Output "::error::app.ico 太小 ($len 字节)，可能是坏的"
+          foreach ($f in @("assets/app.ico", "assets/app-placeholder.ico")) {
+            if (Test-Path $f) {
+              $len = (Get-Item $f).Length
+              Write-Output "$f 存在，大小 = $len 字节"
+              if ($len -lt 100) {
+                Write-Output "::warning::$f 只有 $len 字节，可能是坏的"
+              }
+            } else {
+              Write-Output "::warning::$f 不存在"
             }
-          } else {
-            Write-Output "::error::assets/app.ico 不存在！"
           }
           Write-Output ""
           Write-Output "=== CMake 版本 ==="
@@ -97,6 +98,7 @@ jobs:
           $must = @(
             "JUCE/CMakeLists.txt",
             "JUCE/extras/Build/CMake/JUCEUtils.cmake",
+            "JUCE/extras/Build/juceaide/CMakeLists.txt",
             "JUCE/modules/juce_core",
             "JUCE/modules/juce_gui_basics",
             "JUCE/modules/juce_audio_devices",
@@ -130,11 +132,10 @@ jobs:
           }
 
       # 注意：这里刻意【不缓存 build 目录】。
-      # 原因：build/CMakeCache.txt 里记录了绝对路径，一旦缓存被还原，
-      # JUCE 的 juceaide 会把 icon.ico 生成到旧路径，导致
-      # "Could not find icon file:" 报错。CMake 配置本身只要十几秒，
+      # 原因：build/CMakeCache.txt 里记录的绝对路径，一旦缓存被还原全是旧的，
+      # 很容易搞出莫名其妙的报错。CMake 配置本身只要十几秒，
       # 不值得为了省这点时间冒构建失败的风险。
-      # 只缓存 JUCE 源码的下载（下面这步），这个才是真正耗时的部分。
+      # 只缓存 JUCE 源码（上面那步），那才是真正耗时的部分。
 
       - name: 探测可用的 Visual Studio
         shell: pwsh
@@ -164,7 +165,7 @@ jobs:
           Write-Output "工作目录: $(Get-Location)"
           Write-Output "JUCE 是否存在: $(Test-Path 'JUCE/CMakeLists.txt')"
 
-          # ---- 详细诊断：assets 与图标到底在不在 ----
+          # ---- 诊断：assets 与图标到底在不在 ----
           Write-Output ""
           Write-Output "===== assets 诊断 ====="
           Write-Output "assets 目录存在: $(Test-Path 'assets')"
@@ -173,10 +174,6 @@ jobs:
               Write-Output "  $($_.Name)  $($_.Length) 字节"
             }
           }
-          Write-Output "app.ico 存在: $(Test-Path 'assets/app.ico')"
-          $abs = Join-Path (Get-Location) 'assets/app.ico'
-          Write-Output "绝对路径: $abs"
-          Write-Output "绝对路径存在: $(Test-Path $abs)"
           Write-Output "===== 诊断结束 ====="
           Write-Output ""
 
@@ -186,28 +183,20 @@ jobs:
             Remove-Item -Recurse -Force "build" -ErrorAction SilentlyContinue
           }
 
-          # ---- 图标检查：JUCE 强制要求 ICON_BIG 指向真实文件 ----
-          Write-Output ""
-          Write-Output "图标文件检查:"
+          # ---- 图标：算出绝对路径，用 -D 明确传给 CMake ----
+          # 说明：CMakeLists.txt 已经【不再使用 JUCE 的 ICON_BIG】。
+          # 图标改成由 CMake 自己生成 .rc 嵌进 exe；这里把路径显式传进去，
+          # 是为了日志里能一眼看到到底用的哪个文件。
+          $iconArg = ""
           foreach ($f in @("assets/app.ico", "assets/app-placeholder.ico")) {
-            if (Test-Path $f) {
-              Write-Output "   [有] $f  $((Get-Item $f).Length) 字节"
-            } else {
-              Write-Output "   [无] $f"
+            if ((-not $iconArg) -and (Test-Path $f)) {
+              $iconArg = (Join-Path (Get-Location) $f) -replace '\\', '/'
             }
           }
-          if (-not (Test-Path "assets/app.ico") -and -not (Test-Path "assets/app-placeholder.ico")) {
-            Write-Output "!!! 两个图标都不存在，就地生成一个兜底图标 !!!"
-            New-Item -ItemType Directory -Force -Path "assets" | Out-Null
-            $tiny = [byte[]](
-              0,0,1,0,1,0,
-              1,1,0,0,1,0,32,0,48,0,0,0,22,0,0,0,
-              40,0,0,0,1,0,0,0,2,0,0,0,1,0,32,0,
-              0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              32,32,32,0,
-              0,0,0,0)
-            [IO.File]::WriteAllBytes("assets/app-placeholder.ico", $tiny)
-            Write-Output "已生成 assets/app-placeholder.ico ($($tiny.Length) 字节)"
+          if ($iconArg) {
+            Write-Output "传给 CMake 的图标: $iconArg"
+          } else {
+            Write-Output "!!! 没有任何 .ico，将跳过图标（不影响编译）!!!"
           }
 
           # ---- 自动挑选生成器 ----
@@ -234,9 +223,13 @@ jobs:
 
           Write-Output "使用生成器: $gen"
 
+          $cfgArgs = @("-B", "build", "-G", $gen, "-A", "x64")
+          if ($iconArg) {
+            $cfgArgs += "-DMIONO_ICON_FILE=$iconArg"
+          }
+
           # ---- 第一次配置 ----
-          cmake -B build -G "$gen" -A x64 2>&1 |
-            Tee-Object -FilePath cmake-config.log
+          & cmake @cfgArgs 2>&1 | Tee-Object -FilePath cmake-config.log
           $cfgOk = ($LASTEXITCODE -eq 0)
 
           # ---- 失败则清空 build 重试一次（排除缓存/残留污染）----
@@ -244,17 +237,18 @@ jobs:
             Write-Output ""
             Write-Output "!!! 第一次配置失败，清空 build 目录后重试 !!!"
             Remove-Item -Recurse -Force "build" -ErrorAction SilentlyContinue
-            cmake -B build -G "$gen" -A x64 2>&1 |
-              Tee-Object -FilePath cmake-config.log
+            & cmake @cfgArgs 2>&1 | Tee-Object -FilePath cmake-config.log
             $cfgOk = ($LASTEXITCODE -eq 0)
           }
+
+          $log = Get-Content cmake-config.log -ErrorAction SilentlyContinue
 
           if (-not $cfgOk) {
             Write-Output "::error::CMake 配置失败 (exit $LASTEXITCODE)"
 
-            # ---- 失败时把图标相关的一切都 dump 出来 ----
+            # ---- 失败时把关键信息 dump 出来 ----
             Write-Output ""
-            Write-Output "########## 图标排查 dump ##########"
+            Write-Output "########## 排查 dump ##########"
             Write-Output "当前工作目录: $(Get-Location)"
             Write-Output "Get-ChildItem 顶层:"
             Get-ChildItem -Force | ForEach-Object { Write-Output "   $($_.Mode)  $($_.Name)" }
@@ -268,14 +262,11 @@ jobs:
             }
             Write-Output "git ls-files assets:"
             git ls-files assets 2>&1 | ForEach-Object { Write-Output "   $_" }
-            Write-Output "git status assets:"
-            git status --short assets 2>&1 | ForEach-Object { Write-Output "   $_" }
             Write-Output "########## dump 结束 ##########"
             Write-Output ""
 
             # 把日志里的关键错误行提取成 GitHub 注解，网页上一眼能看到
-            $log = Get-Content cmake-config.log -ErrorAction SilentlyContinue
-            $errs = $log | Select-String -Pattern "CMake Error|FATAL_ERROR|Could not find|Unknown CMake command|not found|No such file" -SimpleMatch:$false
+            $errs = $log | Select-String -Pattern "CMake Error|FATAL_ERROR|Could not find|Unknown CMake command|not found|No such file"
             if ($errs) {
               foreach ($e in ($errs | Select-Object -First 8)) {
                 Write-Output "::error::$($e.Line.Trim())"
@@ -291,6 +282,14 @@ jobs:
             exit 1
           }
           Write-Output "配置成功"
+
+          # 把图标诊断行显示成注解（成功时也看得到，方便核对）
+          $diag = $log | Select-String -Pattern "MIONO_DIAG_ICON=(.+)$" | Select-Object -First 1
+          if ($diag) {
+            Write-Output "::notice::MioNo 图标 = $($diag.Matches[0].Groups[1].Value.Trim())"
+          } else {
+            Write-Output "::notice::MioNo 这次没有嵌入图标（没找到 .ico 或跳过）"
+          }
 
       - name: 编译（Release）
         shell: pwsh
