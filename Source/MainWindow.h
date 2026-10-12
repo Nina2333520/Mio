@@ -225,7 +225,7 @@ private:
         cbBlock.setBounds (row2.removeFromLeft (90));
         row2.removeFromLeft (12);
         lblPreset.setBounds (row2.removeFromLeft (labelW));
-        cbPreset.setBounds (juce::jmax (100, row2.getWidth() - 250));
+        cbPreset.setBounds (row2.removeFromLeft (juce::jmax (100, row2.getWidth() - 250)));
 
         // 第三行：按钮
         btnStart.setBounds   (row3.removeFromLeft (78));  row3.removeFromLeft (7);
