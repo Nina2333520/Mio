@@ -1,0 +1,152 @@
+name: Build MioNo (Windows)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:        # 也支持手动点按钮触发
+
+jobs:
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+
+    env:
+      JUCE_TAG: "8.0.7"
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          submodules: false     # JUCE 我们自己克隆，不用 submodule
+
+      - name: 打印环境
+        shell: pwsh
+        run: |
+          Write-Output "=== 仓库内容 ==="
+          Get-ChildItem -Force | Select-Object Mode, Name
+          Write-Output ""
+          Write-Output "=== CMake 版本 ==="
+          cmake --version
+          Write-Output ""
+          Write-Output "=== 磁盘空间 ==="
+          Get-PSDrive C | Select-Object Used, Free
+
+      - name: 拉取 JUCE
+        shell: pwsh
+        run: |
+          # JUCE 用浅克隆，只取一个大版本，省时间
+          Write-Output "开始克隆 JUCE $env:JUCE_TAG ..."
+          git clone --depth 1 --branch $env:JUCE_TAG `
+            https://github.com/juce-framework/JUCE.git JUCE 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "git clone 失败 (退出码 $LASTEXITCODE)"
+            exit 1
+          }
+          if (-not (Test-Path "JUCE/modules")) {
+            Write-Error "JUCE 拉取失败：没有 JUCE/modules 目录"
+            Get-ChildItem -Force
+            exit 1
+          }
+          Write-Output "JUCE 就绪，模块："
+          Get-ChildItem JUCE/modules -Directory | Select-Object -First 8 Name
+          Write-Output ""
+          Write-Output "=== 检查 ASIO SDK 是否存在 ==="
+          $asio = "JUCE/modules/juce_audio_devices/native/asio"
+          if (Test-Path $asio) {
+            Write-Output "ASIO SDK: 存在"
+          } else {
+            Write-Output "ASIO SDK: 不存在（将只启用 WASAPI，正常）"
+          }
+
+      - name: 缓存 JUCE 构建产物
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: ${{ runner.os }}-juce-${{ env.JUCE_TAG }}-${{ hashFiles('CMakeLists.txt', 'Source/**') }}
+          restore-keys: |
+            ${{ runner.os }}-juce-${{ env.JUCE_TAG }}-
+
+      - name: 配置 CMake
+        shell: pwsh
+        run: |
+          Write-Output "=== 开始配置 ==="
+          cmake -B build -G "Visual Studio 17 2022" -A x64 2>&1 | Tee-Object -FilePath cmake-config.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::CMake 配置失败"
+            Write-Output "===== CMakeLists.txt ====="
+            Get-Content CMakeLists.txt
+            Write-Output "===== 配置日志末尾 ====="
+            Get-Content cmake-config.log -Tail 80
+            exit 1
+          }
+          Write-Output "配置成功"
+
+      - name: 编译（Release）
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2>&1 | Tee-Object -FilePath cmake-build.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::编译失败"
+            Write-Output "===== 编译日志末尾 200 行 ====="
+            Get-Content cmake-build.log -Tail 200
+            exit 1
+          }
+
+      - name: 定位产物
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter "MioNo.exe" -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match "Release|artefacts" } |
+                 Sort-Object LastWriteTime -Descending |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "没找到 MioNo.exe，列出 build 下所有 exe："
+            Get-ChildItem -Path build -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+              Select-Object FullName
+            exit 1
+          }
+          Write-Output "找到: $($exe.FullName)  ($([math]::Round($exe.Length/1MB,2)) MB)"
+          "exe_path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 准备发布目录
+        shell: pwsh
+        run: |
+          $dir = "release/MioNo"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item "${{ steps.find.outputs.exe_path }}" -Destination "$dir/MioNo.exe"
+          if (Test-Path "README.md") { Copy-Item "README.md" -Destination "$dir/" }
+          if (Test-Path "HOWTO-CN.md") { Copy-Item "HOWTO-CN.md" -Destination "$dir/" }
+          $src = Join-Path $dir "Source"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          Copy-Item "Source/*.h"   -Destination $src
+          Copy-Item "Source/*.cpp" -Destination $src
+          Write-Output "发布内容："
+          Get-ChildItem $dir -Recurse | Select-Object FullName, Length
+
+      - name: 打包 zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "release/MioNo" -DestinationPath "release/MioNo-win64.zip" -Force
+          $mb = (Get-Item "release/MioNo-win64.zip").Length / 1MB
+          Write-Output "=================================="
+          Write-Output "  MioNo-win64.zip = $([math]::Round($mb,2)) MB"
+          Write-Output "=================================="
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MioNo-win64
+          path: release/MioNo-win64.zip
+          retention-days: 90
+
+      - name: 附加到 Release（打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/MioNo-win64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
