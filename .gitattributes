@@ -1,0 +1,16 @@
+# 批处理文件必须保持 CRLF，否则 Windows 下无法运行
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 源码统一用 LF
+*.h   text eol=lf
+*.cpp text eol=lf
+*.txt text eol=lf
+*.md  text eol=lf
+*.yml text eol=lf
+CMakeLists.txt text eol=lf
+.gitignore text eol=lf
+.gitmodules text eol=lf
+
+# 二进制
+*.ico binary
