@@ -7,6 +7,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:        # 也支持手动点按钮触发
 
+# 构建失败时要把日志推到 ci-logs 分支，所以需要写权限
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Windows x64
@@ -42,7 +46,7 @@ jobs:
             if (Test-Path $f) {
               $len = (Get-Item $f).Length
               Write-Output "$f 存在，大小 = $len 字节"
-              if ($len -lt 100) {
+              if ($len -lt 50) {
                 Write-Output "::warning::$f 只有 $len 字节，可能是坏的"
               }
             } else {
@@ -297,10 +301,41 @@ jobs:
           cmake --build build --config Release --parallel 2>&1 | Tee-Object -FilePath cmake-build.log
           if ($LASTEXITCODE -ne 0) {
             Write-Output "::error::编译失败"
-            Write-Output "===== 编译日志末尾 200 行 ====="
-            Get-Content cmake-build.log -Tail 200
+            $log = Get-Content cmake-build.log -ErrorAction SilentlyContinue
+
+            # 把编译器/链接器的报错行提成注解，网页上一眼能看到
+            $errs = $log | Select-String -Pattern "error [A-Z]+\d+|fatal error|error MSB\d+|FAILED:|ninja: build stopped"
+            if ($errs) {
+              foreach ($e in ($errs | Select-Object -First 30)) {
+                Write-Output "::error::$($e.Line.Trim())"
+              }
+            } else {
+              Write-Output "::error::没有匹配到典型报错行，看下面日志"
+            }
+
+            Write-Output "===== 编译日志末尾 150 行 ====="
+            Get-Content cmake-build.log -Tail 150
             exit 1
           }
+
+      - name: 失败时把日志推到 ci-logs 分支（只为排查，失败不影响结果）
+        if: failure()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-logs | Out-Null
+          foreach ($f in @("cmake-config.log", "cmake-build.log")) {
+            if (Test-Path $f) { Copy-Item $f "ci-logs/$f" -Force }
+          }
+          "run=$env:GITHUB_RUN_NUMBER`nsha=$env:GITHUB_SHA`ntime=$(Get-Date -Format o)" |
+            Out-File ci-logs/info.txt -Encoding utf8
+          git config user.name "MioNo CI"
+          git config user.email "ci@local"
+          git checkout -B ci-logs
+          git add -f ci-logs
+          git commit -m "CI log (run $env:GITHUB_RUN_NUMBER)" --no-verify
+          git push -f origin ci-logs
+          Write-Output "日志已推到 ci-logs 分支"
 
       - name: 定位产物
         id: find

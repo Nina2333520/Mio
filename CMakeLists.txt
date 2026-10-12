@@ -139,20 +139,19 @@ if (WIN32)
     if (MIONO_ICON STREQUAL "")
         message(WARNING "没有找到任何 .ico 文件，跳过图标（不影响编译）")
     else()
-        # 用 configure_file 而不是 file(WRITE)：模板里的 @MIONO_ICON_NATIVE@ 是
-        # 原样替换（不做转义），所以带反斜杠的 Windows 路径不会出问题。
-        file(TO_NATIVE_PATH "${MIONO_ICON}" MIONO_ICON_NATIVE)
-        set(_miono_rc_template "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-icon.rc.in")
-        if (EXISTS "${_miono_rc_template}")
-            configure_file("${_miono_rc_template}"
-                           "${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc" @ONLY)
-            target_sources(MioNo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc")
-            message(STATUS "已生成图标资源脚本: ${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc")
-            message(STATUS "嵌入的图标: ${MIONO_ICON_NATIVE}")
-            # 这行会被 CI 抓出来显示成注解，方便在网页上一眼看到用了哪个图标
-            message(STATUS "MIONO_DIAG_ICON=${MIONO_ICON_NATIVE}")
-        else()
-            message(WARNING "缺少图标资源模板 ${_miono_rc_template}，跳过图标（不影响编译）")
-        endif()
+        # 做法跟 JUCE 自己一样：把图标拷进 build 目录，.rc 里只写【文件名】。
+        # 千万别在这里写完整路径 —— .rc 里的字符串会走 C 风格的转义，
+        # "C:\a\Mio\..." 里的 \a \M 会被吃掉，路径就废了（rc.exe 报找不到文件）。
+        get_filename_component(_miono_icon_name "${MIONO_ICON}" NAME)
+        file(COPY "${MIONO_ICON}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+        set(_miono_rc "${CMAKE_CURRENT_BINARY_DIR}/MioNoIcon.rc")
+        file(WRITE "${_miono_rc}"
+            "// 由 CMake 自动生成：把应用图标嵌进 MioNo.exe\n"
+            "IDI_ICON1 ICON DISCARDABLE \"${_miono_icon_name}\"\n")
+        target_sources(MioNo PRIVATE "${_miono_rc}")
+        message(STATUS "已生成图标资源脚本: ${_miono_rc}")
+        message(STATUS "图标文件已复制到: ${CMAKE_CURRENT_BINARY_DIR}/${_miono_icon_name}")
+        # 这行会被 CI 抓出来显示成注解，方便在网页上一眼看到用了哪个图标
+        message(STATUS "MIONO_DIAG_ICON=${CMAKE_CURRENT_BINARY_DIR}/${_miono_icon_name}")
     endif()
 endif()

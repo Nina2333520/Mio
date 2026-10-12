@@ -1,8 +1,0 @@
-// ============================================================================
-//  MioNo 图标资源脚本模板
-//  —— 由 CMakeLists.txt 里的 configure_file() 生成为 build/MioNoIcon.rc
-//  注意：下面那一行的 @MIONO_ICON_NATIVE@ 会被替换成图标的 Windows 绝对路径。
-//  这样 MioNo.exe 就带上图标了，而且完全不经过 JUCE 的图标检查逻辑。
-// ============================================================================
-
-IDI_ICON1 ICON DISCARDABLE "@MIONO_ICON_NATIVE@"

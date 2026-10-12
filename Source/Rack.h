@@ -171,9 +171,16 @@ public:
                 blockSize = bsOk[0];
         }
 
-        err = dev->open (dev->getInputChannelNames(),
-                         dev->getOutputChannelNames(),
-                         sampleRate, blockSize);
+        // JUCE 的 open() 要的是「通道位掩码」(BigInteger)，不是通道名字列表 ——
+        // 这里按 JUCE 的推荐做法：优先用设备给的默认通道，否则把所有通道都打开。
+        juce::BigInteger inMask, outMask;
+        if (auto def = dev->getDefaultInputChannels())  inMask  = *def;
+        else inMask.setRange (0, dev->getInputChannelNames().size(), true);
+
+        if (auto def = dev->getDefaultOutputChannels()) outMask = *def;
+        else outMask.setRange (0, dev->getOutputChannelNames().size(), true);
+
+        err = dev->open (inMask, outMask, sampleRate, blockSize);
         if (err.isNotEmpty())
             return err;
 

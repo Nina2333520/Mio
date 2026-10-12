@@ -10,6 +10,8 @@
 #include <atomic>
 #include <cmath>
 #include <complex>
+#include <cstring>
+#include <map>
 #include <vector>
 
 namespace miono
@@ -152,8 +154,9 @@ struct NoiseGateFx
     double sr = 48000.0;
     float holdCounter = 0.0f;
     float holdMs = 30.0f;
+    float gain = 0.0f;      // 门增益（每个实例独立，不能是函数里的 static）
 
-    void reset() { env = 0.0f; holdCounter = 0.0f; }
+    void reset() { env = 0.0f; holdCounter = 0.0f; gain = 0.0f; }
 
     float process (float x) noexcept
     {
@@ -170,10 +173,9 @@ struct NoiseGateFx
 
         const bool open = (envDb > thresholdDb) || (holdCounter > 0.0f);
         const float target = open ? 1.0f : 0.0f;
-        static thread_local float g = 0.0f;
         const float coef = open ? 0.35f : 0.006f;
-        g += (target - g) * coef;
-        return x * g;
+        gain += (target - gain) * coef;
+        return x * gain;
     }
 };
 
@@ -463,11 +465,13 @@ private:
         std::memcpy (frame.data() + (nfft - hopSize), inBuf.data(),
                      sizeof (float) * (size_t) hopSize);
 
-        // ---- 正变换：JUCE 8 公开 API，实部虚部交错存放 ----
+        // ---- 正变换：JUCE 8 的实数 FFT（原地，交错存 re/im）----
+        // 注意：JUCE 8 里没有 perform(float*, float*, bool) 这种重载，
+        // 实数输入必须用 performRealOnlyForwardTransform / performRealOnlyInverseTransform。
         std::fill (spec.begin(), spec.end(), 0.0f);
         std::memcpy (spec.data(), frame.data(), sizeof (float) * (size_t) nfft);
         window->multiplyWithWindowingTable (spec.data(), (size_t) nfft);
-        fft->perform (spec.data(), spec.data(), false);   // false = 正变换
+        fft->performRealOnlyForwardTransform (spec.data(), true);   // true = 只算前 N/2+1 个 bin
 
         const int bins = nfft / 2 + 1;
         for (int k = 0; k < bins; ++k)
@@ -491,8 +495,8 @@ private:
             spec[(size_t) (2 * k + 1)] = im * gain;
         }
 
-        // ---- 逆变换：true = 逆变换；结果落在 spec 前 nfft 个 float ----
-        fft->perform (spec.data(), spec.data(), true);
+        // ---- 逆变换：true = 逆变换；结果（实数）落在 spec 前 nfft 个 float ----
+        fft->performRealOnlyInverseTransform (spec.data());
         window->multiplyWithWindowingTable (spec.data(), (size_t) nfft);
 
         // 重叠相加
@@ -533,6 +537,7 @@ struct FxRuntime
 {
     FxType type = FxType::Highpass;
     bool   on   = true;
+    double sr   = 48000.0;
 
     Biquad          biquad;
     NoiseGateFx     gate;
@@ -543,8 +548,9 @@ struct FxRuntime
     OctaveFx        octave;
     SpectralDenoiseFx denoise;
 
-    void prepare (double sr)
+    void prepare (double sampleRate)
     {
+        sr = sampleRate;
         gate.sr = sr;
         comp.sr = sr;
         limiter.sr = sr;
@@ -568,13 +574,13 @@ struct FxRuntime
         switch (type)
         {
             case FxType::Highpass:
-                biquad.setHighpass (48000.0, s.get ("freq", 90.0f), s.get ("q", 0.707f));
+                biquad.setHighpass (sr, s.get ("freq", 90.0f), s.get ("q", 0.707f));
                 break;
             case FxType::Lowpass:
-                biquad.setLowpass (48000.0, s.get ("freq", 12000.0f), s.get ("q", 0.707f));
+                biquad.setLowpass (sr, s.get ("freq", 12000.0f), s.get ("q", 0.707f));
                 break;
             case FxType::PeakEQ:
-                biquad.setPeak (48000.0, s.get ("freq", 1000.0f), s.get ("q", 1.0f), s.get ("gain", 0.0f));
+                biquad.setPeak (sr, s.get ("freq", 1000.0f), s.get ("q", 1.0f), s.get ("gain", 0.0f));
                 break;
             case FxType::NoiseGate:
                 gate.thresholdDb = s.get ("threshold", -45.0f);
