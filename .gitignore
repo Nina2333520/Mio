@@ -1,0 +1,33 @@
+# 构建产物
+build/
+build-*/
+out/
+cmake-build-*/
+*.exe
+*.pdb
+*.ilk
+*.obj
+*.o
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+CMakeUserPresets.json
+compile_commands.json
+
+# 系统
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 临时
+*.log
+*.tmp
