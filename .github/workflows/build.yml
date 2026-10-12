@@ -1,0 +1,405 @@
+name: Build MioNo (Windows)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:        # 也支持手动点按钮触发
+
+# 构建失败时要把日志推到 ci-logs 分支，所以需要写权限
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Windows x64
+    # 注意：windows-latest 从 2026-06 起已切到 VS 2026（生成器名变了），
+    # 这里固定用 windows-2022（VS 2022），兼容性最稳。
+    runs-on: windows-2022
+
+    env:
+      JUCE_TAG: "8.0.7"
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          submodules: false     # JUCE 我们自己克隆，不用 submodule
+          fetch-depth: 1
+
+      - name: 打印环境
+        shell: pwsh
+        run: |
+          Write-Output "=== 仓库内容 ==="
+          Get-ChildItem -Force | Select-Object Mode, Name
+          Write-Output ""
+          Write-Output "=== assets 目录 ==="
+          if (Test-Path "assets") {
+            Get-ChildItem "assets" -Force | Select-Object Name, Length
+          } else {
+            Write-Output "!!! assets 目录不存在 !!!"
+          }
+          Write-Output ""
+          Write-Output "=== 图标文件检查 ==="
+          foreach ($f in @("assets/app.ico", "assets/app-placeholder.ico")) {
+            if (Test-Path $f) {
+              $len = (Get-Item $f).Length
+              Write-Output "$f 存在，大小 = $len 字节"
+              if ($len -lt 50) {
+                Write-Output "::warning::$f 只有 $len 字节，可能是坏的"
+              }
+            } else {
+              Write-Output "::warning::$f 不存在"
+            }
+          }
+          Write-Output ""
+          Write-Output "=== CMake 版本 ==="
+          cmake --version
+          Write-Output ""
+          Write-Output "=== 磁盘空间 ==="
+          Get-PSDrive C | Select-Object Used, Free
+
+      - name: 缓存 JUCE 源码
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: JUCE
+          key: juce-src-${{ env.JUCE_TAG }}-v1
+
+      - name: 拉取 JUCE
+        shell: pwsh
+        run: |
+          # 如果残留了 .gitmodules，git 可能把 JUCE 当 submodule，
+          # 导致目录变成空壳。先彻底清干净再克隆。
+          Remove-Item -Force ".gitmodules" -ErrorAction SilentlyContinue
+
+          # 缓存命中就跳过克隆
+          if (Test-Path "JUCE/CMakeLists.txt") {
+            Write-Output "JUCE 已从缓存还原，跳过克隆"
+          } else {
+            if (Test-Path "JUCE") {
+              Write-Output "清理残留的 JUCE 目录..."
+              Remove-Item -Recurse -Force "JUCE" -ErrorAction SilentlyContinue
+            }
+
+            # JUCE 用浅克隆，只取一个大版本，省时间
+            Write-Output "开始克隆 JUCE $env:JUCE_TAG ..."
+            git clone --depth 1 --branch $env:JUCE_TAG `
+              https://github.com/juce-framework/JUCE.git JUCE 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "git clone 失败 (退出码 $LASTEXITCODE)"
+              exit 1
+            }
+          }
+
+          if (-not (Test-Path "JUCE/modules")) {
+            Write-Error "JUCE 拉取失败：没有 JUCE/modules 目录"
+            Get-ChildItem -Force
+            exit 1
+          }
+          # ---- 关键校验：JUCE 必须是一个完整可用的源码树 ----
+          $must = @(
+            "JUCE/CMakeLists.txt",
+            "JUCE/extras/Build/CMake/JUCEUtils.cmake",
+            "JUCE/extras/Build/juceaide/CMakeLists.txt",
+            "JUCE/modules/juce_core",
+            "JUCE/modules/juce_gui_basics",
+            "JUCE/modules/juce_audio_devices",
+            "JUCE/modules/juce_dsp"
+          )
+          $bad = $must | Where-Object { -not (Test-Path $_) }
+          if ($bad) {
+            Write-Output "::error::JUCE 目录不完整，缺少：$($bad -join ', ')"
+            Write-Output "===== JUCE 顶层内容 ====="
+            Get-ChildItem JUCE -Force -ErrorAction SilentlyContinue | Select-Object Name
+            Write-Output "===== JUCE/.git 情况 ====="
+            if (Test-Path "JUCE/.git") {
+              Write-Output "JUCE/.git 存在，内容是："
+              Get-Content "JUCE/.git" -ErrorAction SilentlyContinue
+            } else {
+              Write-Output "JUCE/.git 不存在"
+            }
+            exit 1
+          }
+          Write-Output "JUCE 完整性校验通过"
+
+          Write-Output "JUCE 就绪，模块："
+          Get-ChildItem JUCE/modules -Directory | Select-Object -First 8 Name
+          Write-Output ""
+          Write-Output "=== 检查 ASIO SDK 是否存在 ==="
+          $asio = "JUCE/modules/juce_audio_devices/native/asio"
+          if (Test-Path $asio) {
+            Write-Output "ASIO SDK: 存在"
+          } else {
+            Write-Output "ASIO SDK: 不存在（将只启用 WASAPI，正常）"
+          }
+
+      # 注意：这里刻意【不缓存 build 目录】。
+      # 原因：build/CMakeCache.txt 里记录的绝对路径，一旦缓存被还原全是旧的，
+      # 很容易搞出莫名其妙的报错。CMake 配置本身只要十几秒，
+      # 不值得为了省这点时间冒构建失败的风险。
+      # 只缓存 JUCE 源码（上面那步），那才是真正耗时的部分。
+
+      - name: 探测可用的 Visual Studio
+        shell: pwsh
+        run: |
+          Write-Output "=== cmake 版本 ==="
+          cmake --version
+
+          Write-Output ""
+          Write-Output "=== VS 安装位置（vswhere）==="
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -all -products * -format value -property displayName
+            Write-Output "--- 完整信息 ---"
+            & $vswhere -all -products * -format value -property installationPath
+          } else {
+            Write-Output "vswhere 不存在: $vswhere"
+          }
+
+          Write-Output ""
+          Write-Output "=== CMake 能识别的 Visual Studio 生成器 ==="
+          cmake --help 2>&1 | Select-String -Pattern "Visual Studio 1[678]"
+
+      - name: 配置 CMake
+        shell: pwsh
+        run: |
+          Write-Output "=== 开始配置 ==="
+          Write-Output "工作目录: $(Get-Location)"
+          Write-Output "JUCE 是否存在: $(Test-Path 'JUCE/CMakeLists.txt')"
+
+          # ---- 诊断：assets 与图标到底在不在 ----
+          Write-Output ""
+          Write-Output "===== assets 诊断 ====="
+          Write-Output "assets 目录存在: $(Test-Path 'assets')"
+          if (Test-Path 'assets') {
+            Get-ChildItem 'assets' -Force | ForEach-Object {
+              Write-Output "  $($_.Name)  $($_.Length) 字节"
+            }
+          }
+          Write-Output "===== 诊断结束 ====="
+          Write-Output ""
+
+          # ---- 清理可能污染配置的旧缓存（CMakeCache 里会记录旧的绝对路径）----
+          if (Test-Path "build/CMakeCache.txt") {
+            Write-Output "发现旧 CMakeCache.txt，清理以保证路径正确..."
+            Remove-Item -Recurse -Force "build" -ErrorAction SilentlyContinue
+          }
+
+          # ---- 图标：算出绝对路径，用 -D 明确传给 CMake ----
+          # 说明：CMakeLists.txt 已经【不再使用 JUCE 的 ICON_BIG】。
+          # 图标改成由 CMake 自己生成 .rc 嵌进 exe；这里把路径显式传进去，
+          # 是为了日志里能一眼看到到底用的哪个文件。
+          $iconArg = ""
+          foreach ($f in @("assets/app.ico", "assets/app-placeholder.ico")) {
+            if ((-not $iconArg) -and (Test-Path $f)) {
+              $iconArg = (Join-Path (Get-Location) $f) -replace '\\', '/'
+            }
+          }
+          if ($iconArg) {
+            Write-Output "传给 CMake 的图标: $iconArg"
+          } else {
+            Write-Output "!!! 没有任何 .ico，将跳过图标（不影响编译）!!!"
+          }
+
+          # ---- 自动挑选生成器 ----
+          $gen = $null
+          $allGens = (cmake --help 2>&1) -join [Environment]::NewLine
+
+          foreach ($cand in @(
+              "Visual Studio 17 2022",
+              "Visual Studio 18 2026",
+              "Visual Studio 16 2019"
+          )) {
+            if ($allGens -match [regex]::Escape($cand)) {
+              $gen = $cand
+              break
+            }
+          }
+
+          if (-not $gen) {
+            Write-Output "::error::没有找到任何可用的 Visual Studio 生成器"
+            Write-Output "===== 全部生成器列表 ====="
+            Write-Output $allGens
+            exit 1
+          }
+
+          Write-Output "使用生成器: $gen"
+
+          $cfgArgs = @("-B", "build", "-G", $gen, "-A", "x64")
+          if ($iconArg) {
+            $cfgArgs += "-DMIONO_ICON_FILE=$iconArg"
+          }
+
+          # ---- 第一次配置 ----
+          & cmake @cfgArgs 2>&1 | Tee-Object -FilePath cmake-config.log
+          $cfgOk = ($LASTEXITCODE -eq 0)
+
+          # ---- 失败则清空 build 重试一次（排除缓存/残留污染）----
+          if (-not $cfgOk) {
+            Write-Output ""
+            Write-Output "!!! 第一次配置失败，清空 build 目录后重试 !!!"
+            Remove-Item -Recurse -Force "build" -ErrorAction SilentlyContinue
+            & cmake @cfgArgs 2>&1 | Tee-Object -FilePath cmake-config.log
+            $cfgOk = ($LASTEXITCODE -eq 0)
+          }
+
+          $log = Get-Content cmake-config.log -ErrorAction SilentlyContinue
+
+          if (-not $cfgOk) {
+            Write-Output "::error::CMake 配置失败 (exit $LASTEXITCODE)"
+
+            # ---- 失败时把关键信息 dump 出来 ----
+            Write-Output ""
+            Write-Output "########## 排查 dump ##########"
+            Write-Output "当前工作目录: $(Get-Location)"
+            Write-Output "Get-ChildItem 顶层:"
+            Get-ChildItem -Force | ForEach-Object { Write-Output "   $($_.Mode)  $($_.Name)" }
+            Write-Output "assets 目录内容:"
+            if (Test-Path 'assets') {
+              Get-ChildItem 'assets' -Force | ForEach-Object {
+                Write-Output "   $($_.Name)  $($_.Length) 字节  FullName=$($_.FullName)"
+              }
+            } else {
+              Write-Output "   !!! assets 目录不存在 !!!"
+            }
+            Write-Output "git ls-files assets:"
+            git ls-files assets 2>&1 | ForEach-Object { Write-Output "   $_" }
+            Write-Output "########## dump 结束 ##########"
+            Write-Output ""
+
+            # 把日志里的关键错误行提取成 GitHub 注解，网页上一眼能看到
+            $errs = $log | Select-String -Pattern "CMake Error|FATAL_ERROR|Could not find|Unknown CMake command|not found|No such file"
+            if ($errs) {
+              foreach ($e in ($errs | Select-Object -First 8)) {
+                Write-Output "::error::$($e.Line.Trim())"
+              }
+            } else {
+              Write-Output "::error::没有匹配到典型错误行，请看下方完整日志"
+            }
+
+            Write-Output "===== 完整配置日志 ====="
+            Get-Content cmake-config.log
+            Write-Output "===== CMakeLists.txt ====="
+            Get-Content CMakeLists.txt
+            exit 1
+          }
+          Write-Output "配置成功"
+
+          # 把图标诊断行显示成注解（成功时也看得到，方便核对）
+          $diag = $log | Select-String -Pattern "MIONO_DIAG_ICON=(.+)$" | Select-Object -First 1
+          if ($diag) {
+            Write-Output "::notice::MioNo 图标 = $($diag.Matches[0].Groups[1].Value.Trim())"
+          } else {
+            Write-Output "::notice::MioNo 这次没有嵌入图标（没找到 .ico 或跳过）"
+          }
+
+      - name: 编译（Release）
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2>&1 | Tee-Object -FilePath cmake-build.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::编译失败"
+            $log = Get-Content cmake-build.log -ErrorAction SilentlyContinue
+
+            # 把编译器/链接器的报错行提成注解，网页上一眼能看到
+            $errs = $log | Select-String -Pattern "error [A-Z]+\d+|fatal error|error MSB\d+|FAILED:|ninja: build stopped"
+            if ($errs) {
+              foreach ($e in ($errs | Select-Object -First 30)) {
+                Write-Output "::error::$($e.Line.Trim())"
+              }
+            } else {
+              Write-Output "::error::没有匹配到典型报错行，看下面日志"
+            }
+
+            Write-Output "===== 编译日志末尾 150 行 ====="
+            Get-Content cmake-build.log -Tail 150
+            exit 1
+          }
+
+      - name: 失败时把日志推到 ci-logs 分支（只为排查，失败不影响结果）
+        if: failure()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-logs | Out-Null
+          foreach ($f in @("cmake-config.log", "cmake-build.log")) {
+            if (Test-Path $f) { Copy-Item $f "ci-logs/$f" -Force }
+          }
+          "run=$env:GITHUB_RUN_NUMBER`nsha=$env:GITHUB_SHA`ntime=$(Get-Date -Format o)" |
+            Out-File ci-logs/info.txt -Encoding utf8
+          git config user.name "MioNo CI"
+          git config user.email "ci@local"
+          git checkout -B ci-logs
+          git add -f ci-logs
+          git commit -m "CI log (run $env:GITHUB_RUN_NUMBER)" --no-verify
+          git push -f origin ci-logs
+          Write-Output "日志已推到 ci-logs 分支"
+
+      - name: 定位产物
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter "MioNo.exe" -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match "Release|artefacts" } |
+                 Sort-Object LastWriteTime -Descending |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "没找到 MioNo.exe，列出 build 下所有 exe："
+            Get-ChildItem -Path build -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+              Select-Object FullName
+            exit 1
+          }
+          Write-Output "找到: $($exe.FullName)  ($([math]::Round($exe.Length/1MB,2)) MB)"
+          "exe_path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 准备发布目录
+        shell: pwsh
+        run: |
+          $exe = "${{ steps.find.outputs.exe_path }}"
+          Write-Output "定位到的 exe 路径: [$exe]"
+          if (-not $exe -or -not (Test-Path $exe)) {
+            Write-Output "::error::找不到编译产物 exe（路径为空或不存在），无法打包"
+            Write-Output "===== build 目录内容 ====="
+            Get-ChildItem build -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+              Select-Object FullName, Length
+            exit 1
+          }
+
+          $dir = "release/MioNo"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item $exe -Destination "$dir/MioNo.exe"
+          if (Test-Path "README.md") { Copy-Item "README.md" -Destination "$dir/" }
+          if (Test-Path "HOWTO-CN.md") { Copy-Item "HOWTO-CN.md" -Destination "$dir/" }
+          $src = Join-Path $dir "Source"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          Copy-Item "Source/*.h"   -Destination $src
+          Copy-Item "Source/*.cpp" -Destination $src
+          Write-Output "发布内容："
+          Get-ChildItem $dir -Recurse | Select-Object FullName, Length
+
+      - name: 打包 zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "release/MioNo" -DestinationPath "release/MioNo-win64.zip" -Force
+          $mb = (Get-Item "release/MioNo-win64.zip").Length / 1MB
+          Write-Output "=================================="
+          Write-Output "  MioNo-win64.zip = $([math]::Round($mb,2)) MB"
+          Write-Output "=================================="
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MioNo-win64
+          path: release/MioNo-win64.zip
+          retention-days: 90
+
+      - name: 附加到 Release（打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/MioNo-win64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
