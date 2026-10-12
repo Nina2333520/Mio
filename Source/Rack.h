@@ -84,11 +84,21 @@ public:
     ~Rack() override { stop(); }
 
     // ---------------- 设备枚举 ----------------
+    // ⚠️ JUCE 8 里 AudioIODeviceType::getAvailableDeviceTypes() 已经没有了
+    //   （AudioIODeviceType 头文件里明确写着：要拿驱动类型列表请走
+    //    AudioDeviceManager::createAudioDeviceTypes() / getAvailableDeviceTypes()）。
+    //   所以这里用一个只建一次、故意不析构的 AudioDeviceManager 来持有这些类型对象，
+    //   保证返回的指针在整个程序生命周期里都有效。
+    static const juce::OwnedArray<juce::AudioIODeviceType>& availableTypes()
+    {
+        static juce::AudioDeviceManager* mgr = new juce::AudioDeviceManager();
+        return mgr->getAvailableDeviceTypes();
+    }
+
     static juce::StringArray listHostTypes()
     {
         juce::StringArray a;
-        auto& types = juce::AudioIODeviceType::getAvailableDeviceTypes();
-        for (auto* t : types)
+        for (auto* t : availableTypes())
             a.add (t->getTypeName());
         return a;
     }
@@ -96,8 +106,7 @@ public:
     static juce::StringArray listDevices (const juce::String& hostType)
     {
         juce::StringArray out;
-        auto& types = juce::AudioIODeviceType::getAvailableDeviceTypes();
-        for (auto* t : types)
+        for (auto* t : availableTypes())
             if (t->getTypeName() == hostType)
             {
                 t->scanForDevices();
@@ -110,15 +119,12 @@ public:
     static juce::StringArray listChannels (const juce::String& hostType, const juce::String& dev, bool input)
     {
         juce::StringArray out;
-        auto& types = juce::AudioIODeviceType::getAvailableDeviceTypes();
-        for (auto* t : types)
+        for (auto* t : availableTypes())
             if (t->getTypeName() == hostType)
             {
                 t->scanForDevices();
-                if (auto* d = t->createDevice (dev, dev))
-                {
+                if (std::unique_ptr<juce::AudioIODevice> d { t->createDevice (dev, dev) })
                     out = input ? d->getInputChannelNames() : d->getOutputChannelNames();
-                }
                 break;
             }
         return out;
@@ -133,13 +139,12 @@ public:
         stop();
         juce::String err;
 
-        auto& types = juce::AudioIODeviceType::getAvailableDeviceTypes();
         juce::AudioIODeviceType* chosen = nullptr;
-        for (auto* t : types)
+        for (auto* t : availableTypes())
             if (t->getTypeName() == hostType) { chosen = t; break; }
 
-        if (chosen == nullptr && ! types.isEmpty())
-            chosen = types[0];
+        if (chosen == nullptr && ! availableTypes().isEmpty())
+            chosen = availableTypes()[0];
 
         if (chosen == nullptr)
             return u8"找不到任何音频驱动";
