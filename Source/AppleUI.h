@@ -99,40 +99,40 @@ inline std::vector<KnobDef> knobsFor (FxType t)
     switch (t)
     {
         case FxType::SpectralDenoise:
-            return { { "strength", u8"强度", 0.0f, 1.0f, 0.5f, "" } };
+            return { { "strength", L"强度", 0.0f, 1.0f, 0.5f, "" } };
         case FxType::NoiseGate:
-            return { { "threshold", u8"阈值", -80.0f, 0.0f, -45.0f, " dB" },
-                     { "attack",    u8"起音", 0.1f, 50.0f, 3.0f, " ms" },
-                     { "release",   u8"释放", 10.0f, 800.0f, 120.0f, " ms" } };
+            return { { "threshold", L"阈值", -80.0f, 0.0f, -45.0f, " dB" },
+                     { "attack",    L"起音", 0.1f, 50.0f, 3.0f, " ms" },
+                     { "release",   L"释放", 10.0f, 800.0f, 120.0f, " ms" } };
         case FxType::Highpass:
-            return { { "freq", u8"频率", 20.0f, 1000.0f, 90.0f, " Hz" },
-                     { "q",    u8"Q",    0.1f, 4.0f, 0.707f, "" } };
+            return { { "freq", L"频率", 20.0f, 1000.0f, 90.0f, " Hz" },
+                     { "q",    L"Q",    0.1f, 4.0f, 0.707f, "" } };
         case FxType::Lowpass:
-            return { { "freq", u8"频率", 1000.0f, 20000.0f, 12000.0f, " Hz" },
-                     { "q",    u8"Q",    0.1f, 4.0f, 0.707f, "" } };
+            return { { "freq", L"频率", 1000.0f, 20000.0f, 12000.0f, " Hz" },
+                     { "q",    L"Q",    0.1f, 4.0f, 0.707f, "" } };
         case FxType::PeakEQ:
-            return { { "freq", u8"频率", 20.0f, 20000.0f, 1000.0f, " Hz" },
-                     { "q",    u8"Q",    0.1f, 8.0f, 1.0f, "" },
-                     { "gain", u8"增益", -18.0f, 18.0f, 0.0f, " dB" } };
+            return { { "freq", L"频率", 20.0f, 20000.0f, 1000.0f, " Hz" },
+                     { "q",    L"Q",    0.1f, 8.0f, 1.0f, "" },
+                     { "gain", L"增益", -18.0f, 18.0f, 0.0f, " dB" } };
         case FxType::Compressor:
-            return { { "threshold", u8"阈值", -60.0f, 0.0f, -18.0f, " dB" },
-                     { "ratio",     u8"比率", 1.0f, 20.0f, 3.0f, ":1" },
-                     { "attack",    u8"起音", 0.1f, 200.0f, 10.0f, " ms" },
-                     { "release",   u8"释放", 10.0f, 1000.0f, 100.0f, " ms" },
-                     { "knee",      u8"拐点", 0.0f, 24.0f, 6.0f, " dB" } };
+            return { { "threshold", L"阈值", -60.0f, 0.0f, -18.0f, " dB" },
+                     { "ratio",     L"比率", 1.0f, 20.0f, 3.0f, ":1" },
+                     { "attack",    L"起音", 0.1f, 200.0f, 10.0f, " ms" },
+                     { "release",   L"释放", 10.0f, 1000.0f, 100.0f, " ms" },
+                     { "knee",      L"拐点", 0.0f, 24.0f, 6.0f, " dB" } };
         case FxType::Reverb:
-            return { { "size", u8"空间", 0.0f, 1.0f, 0.5f, "" },
-                     { "damp", u8"阻尼", 0.0f, 1.0f, 0.5f, "" },
-                     { "wet",  u8"湿度", -40.0f, 0.0f, -6.0f, " dB" } };
+            return { { "size", L"空间", 0.0f, 1.0f, 0.5f, "" },
+                     { "damp", L"阻尼", 0.0f, 1.0f, 0.5f, "" },
+                     { "wet",  L"湿度", -40.0f, 0.0f, -6.0f, " dB" } };
         case FxType::Delay:
-            return { { "time",     u8"时间", 20.0f, 1200.0f, 250.0f, " ms" },
-                     { "feedback", u8"反馈", 0.0f, 0.85f, 0.3f, "" },
-                     { "wet",      u8"湿度", -40.0f, 0.0f, -10.0f, " dB" } };
+            return { { "time",     L"时间", 20.0f, 1200.0f, 250.0f, " ms" },
+                     { "feedback", L"反馈", 0.0f, 0.85f, 0.3f, "" },
+                     { "wet",      L"湿度", -40.0f, 0.0f, -10.0f, " dB" } };
         case FxType::Octave:
-            return { { "mix", u8"混合", -40.0f, 0.0f, -12.0f, " dB" } };
+            return { { "mix", L"混合", -40.0f, 0.0f, -12.0f, " dB" } };
         case FxType::Limiter:
-            return { { "ceiling", u8"上限", -12.0f, 0.0f, -1.0f, " dB" },
-                     { "release", u8"释放", 10.0f, 500.0f, 60.0f, " ms" } };
+            return { { "ceiling", L"上限", -12.0f, 0.0f, -1.0f, " dB" },
+                     { "release", L"释放", 10.0f, 500.0f, 60.0f, " ms" } };
         default: return {};
     }
 }
@@ -423,8 +423,8 @@ private:
     }
 
     Rack& rack;
-    Lamp lampAsio { u8"ASIO", AppleColors::Acc };
-    Lamp lampRun  { u8"运行", AppleColors::Green };
+    Lamp lampAsio { L"ASIO", AppleColors::Acc };
+    Lamp lampRun  { L"运行", AppleColors::Green };
     juce::Point<int> dragStart, dragWinStart;
 };
 

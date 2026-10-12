@@ -66,6 +66,17 @@ target_compile_definitions(MioNo PRIVATE
 
 target_include_directories(MioNo PRIVATE Source)
 
+# ---------------------------------------------------------------------------
+# MSVC：源码是 UTF-8，必须显式告诉编译器
+# ---------------------------------------------------------------------------
+# ⚠️ 不加 /utf-8 的话，MSVC 会按「系统 ANSI 代码页」读源码，
+#    界面上的中文会全变成 è”±ä¸Šè§’æœ¬ 这种乱码（我们在 CI 上踩过）。
+#    另外注意：JUCE 的 String(const char*) 是按 ASCII 处理的，
+#    所以源码里的中文一律用 L"..." 宽字符串（UTF-16），不要用 u8"..."。
+if (MSVC)
+    target_compile_options(MioNo PRIVATE /utf-8)
+endif()
+
 # 链接 JUCE 模块
 target_link_libraries(MioNo
     PRIVATE

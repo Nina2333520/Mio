@@ -23,10 +23,10 @@ public:
         addAndMakeVisible (panel);
 
         // ---- 设备区 ----
-        setupLabel (lblHost,  u8"驱动");
-        setupLabel (lblDev,   u8"设备");
-        setupLabel (lblRate,  u8"采样率");
-        setupLabel (lblBlock, u8"块大小");
+        setupLabel (lblHost,  L"驱动");
+        setupLabel (lblDev,   L"设备");
+        setupLabel (lblRate,  L"采样率");
+        setupLabel (lblBlock, L"块大小");
 
         for (auto* c : { &cbHost, &cbDev, &cbRate, &cbBlock })
         {
@@ -45,7 +45,7 @@ public:
         cbBlock.setSelectedId (2);
 
         // ---- 预设 ----
-        setupLabel (lblPreset, u8"预设");
+        setupLabel (lblPreset, L"预设");
         for (int i = 0; i < (int) presets().size(); ++i)
             cbPreset.addItem (presets()[(size_t) i].name, i + 1);
         cbPreset.setSelectedId (2, juce::dontSendNotification);
@@ -58,14 +58,14 @@ public:
         addAndMakeVisible (cbPreset);
 
         // ---- 按钮 ----
-        setupButton (btnStart,   u8"启动", [this] { toggleStart(); });
-        setupButton (btnRefresh, u8"刷新", [this] { refreshAll(); });
-        setupButton (btnBypass,  u8"旁通", [this]
+        setupButton (btnStart,   L"启动", [this] { toggleStart(); });
+        setupButton (btnRefresh, L"刷新", [this] { refreshAll(); });
+        setupButton (btnBypass,  L"旁通", [this]
         {
             rack.setBypass (! rack.getBypass());
-            btnBypass.setButtonText (rack.getBypass() ? u8"旁通·开" : u8"旁通");
+            btnBypass.setButtonText (rack.getBypass() ? L"旁通·开" : L"旁通");
         });
-        setupButton (btnFxOn, u8"启用", [this]
+        setupButton (btnFxOn, L"启用", [this]
         {
             auto& slots = rack.getSlotsMutable();
             const int r = chain.getSelectedRow();
@@ -80,8 +80,8 @@ public:
         // ---- 电平 ----
         addAndMakeVisible (barIn);
         addAndMakeVisible (barOut);
-        lblIn.setText (u8"输入", juce::dontSendNotification);
-        lblOut.setText (u8"输出", juce::dontSendNotification);
+        lblIn.setText (L"输入", juce::dontSendNotification);
+        lblOut.setText (L"输出", juce::dontSendNotification);
         for (auto* l : { &lblIn, &lblOut, &lblStat })
         {
             l->setFont (AppleLookAndFeel::getAppFont (12.0f));
@@ -140,11 +140,11 @@ public:
 
         g.setColour (AppleColors::Dim);
         g.setFont (AppleLookAndFeel::getBoldFont (12.5f));
-        g.drawText (u8"音频设备",   devArea.getX() + 14, devArea.getY() + 8, 200, 18,
+        g.drawText (L"音频设备",   devArea.getX() + 14, devArea.getY() + 8, 200, 18,
                     juce::Justification::centredLeft, false);
-        g.drawText (u8"效果链",     chainArea.getX() + 14, chainArea.getY() + 8, 200, 18,
+        g.drawText (L"效果链",     chainArea.getX() + 14, chainArea.getY() + 8, 200, 18,
                     juce::Justification::centredLeft, false);
-        g.drawText (u8"参数",       paramArea.getX() + 14, paramArea.getY() + 8, 200, 18,
+        g.drawText (L"参数",       paramArea.getX() + 14, paramArea.getY() + 8, 200, 18,
                     juce::Justification::centredLeft, false);
     }
 
@@ -276,7 +276,7 @@ private:
         if (rack.isRunning())
         {
             rack.stop();
-            btnStart.setButtonText (u8"启动");
+            btnStart.setButtonText (L"启动");
         }
         else
         {
@@ -287,11 +287,11 @@ private:
             {
                 juce::NativeMessageBox::showMessageBoxAsync (
                     juce::MessageBoxIconType::WarningIcon,
-                    "MioNo", u8"开流失败：\n" + err);
-                btnStart.setButtonText (u8"启动");
+                    "MioNo", L"开流失败：\n" + err);
+                btnStart.setButtonText (L"启动");
                 return;
             }
-            btnStart.setButtonText (u8"停止");
+            btnStart.setButtonText (L"停止");
         }
         title.refresh();
     }
@@ -306,9 +306,9 @@ private:
         juce::String s;
         if (rack.isRunning())
             s = rack.deviceInfo()
-              + juce::String ("   单块 ") + juce::String (rack.getBlockMs(), 2) + " ms";
+              + juce::String (L"   单块 ") + juce::String (rack.getBlockMs(), 2) + " ms";
         else
-            s = u8"未开流 · 选择设备后点「启动」";
+            s = L"未开流 · 选择设备后点「启动」";
         if (lblStat.getText() != s) lblStat.setText (s, juce::dontSendNotification);
 
         title.refresh();
@@ -343,6 +343,7 @@ public:
         // 关闭系统标题栏，标题栏由 TitleBar 组件自绘
         setUsingNativeTitleBar (false);
         setTitleBarButtonsRequired (0, false);
+        setTitleBarHeight (0);      // 把 JUCE 自己画的那条标题栏也去掉，只留自绘的
         setContentOwned (new MainComponent(), true);
         setResizable (true, false);
         setResizeLimits (780, 540, 2200, 1600);

@@ -13,7 +13,7 @@ namespace miono
 // ---------------------------------------------------------------------------
 struct PresetDef
 {
-    const char* name;
+    const wchar_t* name;
     std::vector<FxSlot> chain;
 };
 
@@ -31,7 +31,7 @@ inline FxSlot mkSlot (FxType t,
 inline std::vector<PresetDef> presets()
 {
     return {
-        { u8"聊天 / 游戏", {
+        { L"聊天 / 游戏", {
             mkSlot (FxType::SpectralDenoise, {{"strength", 0.55f}}),
             mkSlot (FxType::Highpass,        {{"freq", 90.0f}, {"q", 0.707f}}),
             mkSlot (FxType::NoiseGate,       {{"threshold", -48.0f}, {"attack", 3.0f}, {"release", 140.0f}}),
@@ -39,7 +39,7 @@ inline std::vector<PresetDef> presets()
             mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 2.5f}, {"attack", 8.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
             mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
         }},
-        { u8"唱歌", {
+        { L"唱歌", {
             mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
             mkSlot (FxType::Highpass,        {{"freq", 100.0f}, {"q", 0.707f}}),
             mkSlot (FxType::PeakEQ,          {{"freq", 300.0f}, {"q", 1.2f}, {"gain", -2.5f}}),
@@ -49,7 +49,7 @@ inline std::vector<PresetDef> presets()
             mkSlot (FxType::Delay,           {{"time", 250.0f}, {"feedback", 0.25f}, {"wet", -18.0f}}),
             mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
         }},
-        { u8"空灵", {
+        { L"空灵", {
             mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
             mkSlot (FxType::Highpass,        {{"freq", 120.0f}, {"q", 0.707f}}),
             mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 3.0f}, {"attack", 12.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
@@ -58,7 +58,7 @@ inline std::vector<PresetDef> presets()
             mkSlot (FxType::Octave,          {{"mix", -14.0f}}),
             mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 80.0f}}),
         }},
-        { u8"电台厚声", {
+        { L"电台厚声", {
             mkSlot (FxType::SpectralDenoise, {{"strength", 0.5f}}),
             mkSlot (FxType::Highpass,        {{"freq", 85.0f}, {"q", 0.707f}}),
             mkSlot (FxType::Lowpass,         {{"freq", 11000.0f}, {"q", 0.707f}}),
@@ -147,13 +147,13 @@ public:
             chosen = availableTypes()[0];
 
         if (chosen == nullptr)
-            return u8"找不到任何音频驱动";
+            return L"找不到任何音频驱动";
 
         chosen->scanForDevices();
         std::unique_ptr<juce::AudioIODevice> dev (
             chosen->createDevice (deviceName, deviceName));
         if (dev == nullptr)
-            return u8"打不开设备：" + deviceName;
+            return L"打不开设备：" + deviceName;
 
         // 用设备支持的采样率 / 块大小，否则退回请求值
         auto srOk = dev->getAvailableSampleRates();     // Array<double>
@@ -212,10 +212,10 @@ public:
 
     juce::String deviceInfo() const
     {
-        if (currentDevice == nullptr) return u8"未连接";
-        return currentHost + " · " + currentDevice->getName()
-             + juce::String (" · ") + juce::String (currentDevice->getCurrentSampleRate(), 0) + " Hz"
-             + juce::String (" · ") + juce::String (currentDevice->getCurrentBufferSizeSamples()) + " smp";
+        if (currentDevice == nullptr) return L"未连接";
+        return currentHost + L" · " + currentDevice->getName()
+             + juce::String (L" · ") + juce::String (currentDevice->getCurrentSampleRate(), 0) + " Hz"
+             + juce::String (L" · ") + juce::String (currentDevice->getCurrentBufferSizeSamples()) + " smp";
     }
 
     // ---------------- 效果链 ----------------

@@ -34,21 +34,21 @@ enum class FxType
     Limiter
 };
 
-inline const char* fxName (FxType t)
+inline const wchar_t* fxName (FxType t)
 {
     switch (t)
     {
-        case FxType::SpectralDenoise: return u8"谱减降噪";
-        case FxType::NoiseGate:       return u8"噪声门";
-        case FxType::Highpass:        return u8"高通";
-        case FxType::Lowpass:         return u8"低通";
-        case FxType::PeakEQ:          return u8"峰值EQ";
-        case FxType::Compressor:      return u8"压缩器";
-        case FxType::Reverb:          return u8"混响";
-        case FxType::Delay:           return u8"延迟";
-        case FxType::Octave:          return u8"八度叠加";
-        case FxType::Limiter:         return u8"限幅器";
-        default:                      return u8"?";
+        case FxType::SpectralDenoise: return L"谱减降噪";
+        case FxType::NoiseGate:       return L"噪声门";
+        case FxType::Highpass:        return L"高通";
+        case FxType::Lowpass:         return L"低通";
+        case FxType::PeakEQ:          return L"峰值EQ";
+        case FxType::Compressor:      return L"压缩器";
+        case FxType::Reverb:          return L"混响";
+        case FxType::Delay:           return L"延迟";
+        case FxType::Octave:          return L"八度叠加";
+        case FxType::Limiter:         return L"限幅器";
+        default:                      return L"?";
     }
 }
 
