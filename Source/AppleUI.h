@@ -283,7 +283,9 @@ public:
         setup (btnDel,  L"🗑 删除", [this] { if (onDelete) onDelete(); });
     }
 
-    void setSlots (const std::vector<FxSlot>* s)
+    // ChainList 的列表点击会切换 FxSlot::on，因此这里必须持有可写引用。
+    // 旧版 const vector* 让绘制能读，但点击时修改 s.on 会触发 MSVC C3490。
+    void setSlots (std::vector<FxSlot>* s)
     {
         slots = s;
         list.updateContent();
@@ -375,7 +377,7 @@ private:
     juce::ListBox    list;
     juce::ComboBox   kind;
     juce::TextButton btnAdd, btnUp, btnDown, btnDel;
-    const std::vector<FxSlot>* slots = nullptr;
+    std::vector<FxSlot>* slots = nullptr;
     int selectedRow = 0;
 };
 

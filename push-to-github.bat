@@ -382,11 +382,9 @@ goto AFTER_PUSH
 
 :FORCE_PUSH
 echo.
-echo   对齐失败，改为强制覆盖远程内容...
-"!GIT_EXE!" push -u origin main --force
-set "RC=!errorlevel!"
-if !RC! neq 0 goto FAILED
-goto AFTER_PUSH
+echo   未能安全对齐远程版本，已停止推送；没有覆盖或删除 GitHub 上的内容。
+echo   请确认网络后重跑 push-to-github.bat；如果仍失败，把本窗口截图发我。
+goto FAILED
 
 :NETFAIL
 echo.
