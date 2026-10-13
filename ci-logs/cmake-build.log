@@ -1,0 +1,29 @@
+MSBuild version 17.14.60+43b635718 for .NET Framework
+
+  Checking File Globs
+  1>Checking Build System
+  Generating MioNo_artefacts/JuceLibraryCode/MioNo_resources.rc
+  Building Custom Rule D:/a/Mio/Mio/CMakeLists.txt
+  MioNo_rc_lib.vcxproj -> D:\a\Mio\Mio\build\MioNo_rc_lib.dir\Release\MioNo_rc_lib.lib
+  Generating MioNo_artefacts/JuceLibraryCode/JuceHeader.h
+  Building Custom Rule D:/a/Mio/Mio/CMakeLists.txt
+  Main.cpp
+  juce_audio_basics.cpp
+  juce_core.cpp
+  juce_core_CompilationTime.cpp
+  juce_audio_devices.cpp
+D:\a\Mio\Mio\Source\AppleLookAndFeel.h(162,75): warning C4100: 's': unreferenced parameter [D:\a\Mio\Mio\build\MioNo.vcxproj]
+  (compiling source file '../Source/Main.cpp')
+  
+D:\a\Mio\Mio\Source\AppleUI.h(364,14): error C3490: 'on' cannot be modified because it is being accessed through a const object [D:\a\Mio\Mio\build\MioNo.vcxproj]
+  (compiling source file '../Source/Main.cpp')
+  
+  juce_events.cpp
+  juce_audio_formats.cpp
+  juce_data_structures.cpp
+  juce_dsp.cpp
+  juce_graphics.cpp
+  juce_graphics_Harfbuzz.cpp
+  juce_gui_basics.cpp
+  juce_gui_extra.cpp
+D:\a\Mio\Mio\JUCE\modules\juce_gui_basics\juce_gui_basics.cpp(61): warning : This version of JUCE does not use the splash screen, the flag JUCE_DISPLAY_SPLASH_SCREEN is ignored [D:\a\Mio\Mio\build\MioNo.vcxproj]
