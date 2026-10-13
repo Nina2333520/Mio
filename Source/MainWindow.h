@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主窗口（无边框苹果风）
-//  v6.8：打开软件自动开流；标题栏显示透明底完整人物
+//  v6.9：增加 Voicemeeter Banana 虚拟声卡一键路由助手
 //        可以缩到状态栏（托盘）
 // ============================================================================
 #pragma once
@@ -81,6 +81,8 @@ public:
         cbBlock.setSelectedId (3, juce::dontSendNotification);
 
         setupButton (btnRefresh, L"🔄 刷新", [this] { refreshAll(); });
+        setupButton (btnRouteVM, L"🔀 Banana 路由", [this] { setupVoicemeeterRoute(); });
+        btnRouteVM.setTooltip (L"自动选择 WASAPI 麦克风输入与 Voicemeeter 虚拟输入，并启动音频");
         setupButton (btnStart,   L"▶ 启动", [this] { toggleStart(); });
 
         tgBypass.setButtonText (L"旁通全部效果（对比原声）");
@@ -367,6 +369,8 @@ private:
 
         // 输入 + 🔄 刷新
         lblIn.setBounds (r1.removeFromLeft (40));
+        btnRouteVM.setBounds (r1.removeFromRight (132));
+        r1.removeFromRight (6);
         btnRefresh.setBounds (r1.removeFromRight (84));
         r1.removeFromRight (6);
         cbIn.setBounds (r1);
@@ -609,6 +613,117 @@ private:
             status = juce::String (L"本地自动保存失败：") + err;
     }
 
+    // ---------------- Voicemeeter / 虚拟声卡一键路由 ----------------
+    void setupVoicemeeterRoute()
+    {
+        juce::String wasapiHost;
+        for (const auto& host : Rack::listHostTypes())
+            if (host.containsIgnoreCase ("WASAPI")) { wasapiHost = host; break; }
+
+        if (wasapiHost.isEmpty())
+        {
+            juce::NativeMessageBox::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, "MioNo",
+                L"当前构建没有可用的 WASAPI 驱动，无法自动配置虚拟声卡路由。请刷新设备列表，或改用 ASIO 声卡。");
+            return;
+        }
+
+        const auto inputs  = Rack::listDevices (wasapiHost, true);
+        const auto outputs = Rack::listDevices (wasapiHost, false);
+        juce::String targetOutput;
+
+        // 优先选择 Banana 主虚拟输入；没有时用 AUX 虚拟输入，再回退到 VB-CABLE。
+        for (const auto& name : outputs)
+            if (name.containsIgnoreCase ("Voicemeeter Input")
+                && ! name.containsIgnoreCase ("AUX")) { targetOutput = name; break; }
+        if (targetOutput.isEmpty())
+            for (const auto& name : outputs)
+                if (name.containsIgnoreCase ("Voicemeeter AUX Input")) { targetOutput = name; break; }
+        if (targetOutput.isEmpty())
+            for (const auto& name : outputs)
+                if (name.containsIgnoreCase ("CABLE Input")) { targetOutput = name; break; }
+
+        if (targetOutput.isEmpty())
+        {
+            juce::NativeMessageBox::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, "MioNo",
+                L"没有找到 Voicemeeter 虚拟输入或 VB-CABLE 播放设备。请先安装并启动 Voicemeeter Banana（或 VB-CABLE），再点「🔄 刷新」后重试。");
+            return;
+        }
+        if (inputs.isEmpty())
+        {
+            juce::NativeMessageBox::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, "MioNo",
+                L"WASAPI 没有检测到麦克风输入设备。请连接/启用麦克风后再试。");
+            return;
+        }
+
+        auto inputName = cbIn.getText();
+        if (inputName.isEmpty()) inputName = rack.getPreferredInputName();
+        if (inputName.isEmpty() || ! inputs.contains (inputName)
+            || inputName.containsIgnoreCase ("Voicemeeter")
+            || inputName.containsIgnoreCase ("CABLE Output"))
+        {
+            // 不把 Banana 的虚拟回采端当成麦克风，优先取第一个真实输入端。
+            inputName.clear();
+            for (const auto& name : inputs)
+                if (! name.containsIgnoreCase ("Voicemeeter")
+                    && ! name.containsIgnoreCase ("CABLE Output")) { inputName = name; break; }
+            if (inputName.isEmpty()) inputName = inputs[0];
+        }
+
+        const bool wasRunning = rack.isRunning();
+        if (wasRunning)
+        {
+            rack.stop();
+            btnStart.setButtonText (L"▶ 启动");
+        }
+
+        int wasapiId = 0;
+        const auto hosts = Rack::listHostTypes();
+        for (int i = 0; i < hosts.size(); ++i)
+            if (hosts[i] == wasapiHost) { wasapiId = i + 1; break; }
+        cbHost.setSelectedId (wasapiId, juce::sendNotification);
+
+        auto selectText = [] (juce::ComboBox& box, const juce::String& text)
+        {
+            for (int i = 0; i < box.getNumItems(); ++i)
+                if (box.getItemText (i) == text)
+                {
+                    box.setSelectedId (box.getItemId (i), juce::dontSendNotification);
+                    return true;
+                }
+            return false;
+        };
+        const bool inputSelected = selectText (cbIn, inputName);
+        const bool outputSelected = selectText (cbOut, targetOutput);
+        if (! inputSelected || ! outputSelected)
+        {
+            status = L"虚拟声卡路由设备列表已变化；请点刷新后重试";
+            return;
+        }
+
+        // 48 kHz/256 是常见的共享模式组合；由 WASAPI 再按设备能力校验。
+        cbRate.setSelectedId (2, juce::dontSendNotification);
+        cbBlock.setSelectedId (3, juce::dontSendNotification);
+        updatePreferredDeviceSettings();
+        settingsChanged();
+        startAudio (false);
+
+        juce::String instructions = rack.isRunning()
+            ? juce::String (L"已配置并启动 MioNo：\n麦克风：")
+            : juce::String (L"路由设备已选好，但音频启动失败；请查看窗口状态栏并检查设备占用。\n麦克风：");
+        instructions += inputName + L"\n输出：" + targetOutput
+            + L"\n\n接下来在 Voicemeeter Banana：\n"
+              L"1. 在对应的 VAIO/AUX 虚拟输入条打开 B1（送给聊天软件）；需要自己监听时再打开 A1。\n"
+              L"2. Discord/OBS 的麦克风选择「Voicemeeter Output（B1）」或其对应设备。\n"
+              L"3. 如果 Banana 的实体麦克风条也能收到原声，把那条的 B1 关掉，避免干声与处理声叠加。\n\n"
+              L"若输出选中的是 VB-CABLE，则在 Banana 的 Hardware Input 选择「CABLE Output」，再按需打开 B1/A1。";
+        juce::NativeMessageBox::showMessageBoxAsync (
+            juce::MessageBoxIconType::InfoIcon, "MioNo · Voicemeeter 路由",
+            instructions);
+    }
+
     // ---------------- 动作 ----------------
     void startAudio (bool showErrorDialog)
     {
@@ -807,7 +922,7 @@ private:
     juce::Label lblGainIn, lblGainOut, lblPan, lblPanVal;
     juce::Label lblMeterIn, lblMeterOut, txtIn, txtOut;
     juce::ComboBox cbHost, cbIn, cbOut, cbRate, cbBlock;
-    juce::TextButton btnRefresh, btnStart, btnTray;
+    juce::TextButton btnRefresh, btnRouteVM, btnStart, btnTray;
     juce::ToggleButton tgBypass, tgAuto, tgAutoAudio, tgTray;
     juce::Slider slGainIn, slGainOut, slPan;
     LevelBar barIn, barOut;

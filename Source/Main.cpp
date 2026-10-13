@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 应用入口
-//  v6.8：启动时可自动开流；标题栏显示透明底完整人物
+//  v6.9：增加 Voicemeeter Banana 虚拟声卡一键路由助手
 // ============================================================================
 #include <JuceHeader.h>
 #include "MainWindow.h"
@@ -12,7 +12,7 @@ public:
     MioNoApplication() = default;
 
     const juce::String getApplicationName() override    { return "MioNo"; }
-    const juce::String getApplicationVersion() override { return "6.8"; }
+    const juce::String getApplicationVersion() override { return "6.9"; }
 
     // 只允许一个实例：已经在状态栏里跑着的时候，再点 exe 不会开出第二个，
     // 而是把原来那个窗口叫出来（音频设备是独占的，开第二个也没意义）。
