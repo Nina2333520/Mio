@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主窗口（无边框苹果风）
-//  v6.1：输入/输出分开选、增益/声像、空灵层、配置存盘、开机自启、Peak+RMS
+//  v6.2：可以缩到状态栏（托盘）跑，开机自启后直接缩到状态栏
 // ============================================================================
 #pragma once
 
@@ -8,6 +8,7 @@
 #include "Rack.h"
 #include "AppleLookAndFeel.h"
 #include "AppleUI.h"
+#include "TrayIcon.h"
 
 namespace miono
 {
@@ -16,6 +17,15 @@ class MainComponent : public juce::Component,
                       private juce::Timer
 {
 public:
+    // 交给主窗口接管的两个动作 / 一个状态回报
+    std::function<void()>  onHideToTray;      // 点「⇩ 缩到托盘」
+    std::function<void (const juce::String&, bool)> onTrayUpdate;   // (提示文字, 是否在跑)
+
+    bool trayOnClose = true;                  // 关窗口时缩到托盘（而不是退出）
+
+    // 给主窗口 / 托盘菜单用（托盘里点「启动 / 停止」走这里）
+    void trayToggleRun() { toggleStart(); }
+
     MainComponent()
     {
         setSize (1000, 700);
@@ -94,8 +104,29 @@ public:
 
         tgAuto.setButtonText (L"开机自启");
         tgAuto.setToggleState (Rack::getAutoStart(), juce::dontSendNotification);
-        tgAuto.onClick = [this] { Rack::setAutoStart (tgAuto.getToggleState()); };
+        tgAuto.onClick = [this]
+        {
+            Rack::setAutoStart (tgAuto.getToggleState());
+            status = tgAuto.getToggleState()
+                        ? juce::String (L"已开启开机自启（开机后自动缩到状态栏）")
+                        : juce::String (L"已关闭开机自启");
+        };
         addAndMakeVisible (tgAuto);
+
+        // ---------------- 状态栏（托盘） ----------------
+        tgTray.setButtonText (L"关闭缩到托盘");
+        trayOnClose = rack.getTrayOnClose();
+        tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
+        tgTray.onClick = [this]
+        {
+            trayOnClose = tgTray.getToggleState();
+            rack.setTrayOnClose (trayOnClose);
+            status = trayOnClose ? juce::String (L"关窗口 = 缩到状态栏（右键图标可退出）")
+                                 : juce::String (L"关窗口 = 直接退出程序");
+        };
+        addAndMakeVisible (tgTray);
+
+        setupButton (btnTray, L"⇩ 缩到托盘", [this] { if (onHideToTray != nullptr) onHideToTray(); });
 
         // ---------------- 两条链的切换 ----------------
         setupButton (btnTabMain,  L"🎤 主效果链", [this] { setEditingLayer (false); });
@@ -286,7 +317,9 @@ public:
         btnRefresh.setBounds (row3.removeFromLeft (72));  row3.removeFromLeft (6);
         btnBypass.setBounds  (row3.removeFromLeft (84));  row3.removeFromLeft (6);
         btnFxOn.setBounds    (row3.removeFromLeft (96));  row3.removeFromLeft (12);
-        tgAuto.setBounds     (row3.removeFromLeft (110));
+        tgAuto.setBounds     (row3.removeFromLeft (100)); row3.removeFromLeft (10);
+        btnTray.setBounds    (row3.removeFromLeft (104)); row3.removeFromLeft (10);
+        tgTray.setBounds     (row3.removeFromLeft (118));
 
         lblGainIn.setBounds (row4.removeFromLeft (labelW));
         slGainIn.setBounds (row4.removeFromLeft (juce::jmax (100, row4.getWidth() / 3 - 50)));
@@ -523,6 +556,8 @@ private:
         slGainOut.setValue ((double) rack.getOutputGainDb(), juce::dontSendNotification);
         slPan    .setValue ((double) rack.getPan(),          juce::dontSendNotification);
         btnBypass.setButtonText (rack.getBypass() ? L"旁通·开" : L"旁通");
+        trayOnClose = rack.getTrayOnClose();
+        tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
         refreshChain();
         refreshLayerControls();
     }
@@ -562,6 +597,16 @@ private:
         if (lblStat.getText() != s)
             lblStat.setText (s, juce::dontSendNotification);
 
+        // 状态栏（托盘）图标的悬停提示跟着状态走
+        if (onTrayUpdate != nullptr)
+        {
+            const bool run = rack.isRunning();
+            const juce::String tip = run
+                ? (juce::String (L"MioNo · 运行中  ") + juce::String ((double) rack.getLoadPercent(), 0) + L"%")
+                : juce::String (L"MioNo · 未开流");
+            onTrayUpdate (tip, run);
+        }
+
         title.refresh();
     }
 
@@ -574,8 +619,8 @@ private:
     juce::Label lblGainIn, lblGainOut, lblPan, lblLayerGain;
     juce::ComboBox cbHost, cbIn, cbOut, cbRate, cbBlock, cbPreset;
     juce::TextButton btnStart, btnRefresh, btnBypass, btnFxOn, btnSave, btnLoad;
-    juce::TextButton btnTabMain, btnTabLayer;
-    juce::ToggleButton tgAuto, tgLayer;
+    juce::TextButton btnTabMain, btnTabLayer, btnTray;
+    juce::ToggleButton tgAuto, tgLayer, tgTray;
     juce::Slider slGainIn, slGainOut, slPan, slLayerGain;
 
     juce::Label lblIn, lblOut, lblStat;
@@ -601,26 +646,93 @@ private:
 class MainWindow : public juce::DocumentWindow
 {
 public:
-    MainWindow (juce::String name)
+    MainWindow (juce::String name, bool startInTray = false)
         : juce::DocumentWindow (name, AppleColors::Bg, juce::DocumentWindow::allButtons)
     {
         // 关闭系统标题栏，标题栏由 TitleBar 组件自绘
         setUsingNativeTitleBar (false);
         setTitleBarButtonsRequired (0, false);
         setTitleBarHeight (0);      // 把 JUCE 自己画的那条标题栏也去掉，只留自绘的
-        setContentOwned (new MainComponent(), true);
+
+        main = new MainComponent();
+        setContentOwned (main, true);
         setResizable (true, false);
         setResizeLimits (820, 620, 10000, 10000);
         centreWithSize (1000, 700);
-        setVisible (true);
+
+        // ---- 状态栏（托盘）图标 ----
+        // 建出来就在状态栏上了；右键出菜单，左键把窗口叫回来。
+        tray = std::make_unique<TrayIcon>();
+        tray->onShowWindow = [this] { showFromTray(); };
+        tray->onToggleRun  = [this] { if (main != nullptr) main->trayToggleRun(); };
+        tray->onQuit       = [this] { quitNow(); };
+
+        main->onHideToTray = [this] { hideToTray(); };
+        main->onTrayUpdate = [this] (const juce::String& tip, bool run)
+        {
+            if (tray != nullptr) { tray->setRunning (run); tray->setTip (tip); }
+        };
+
+        if (startInTray)
+        {
+            // 开机自启：窗口根本不显示（也就不会闪一下），图标直接躺在状态栏上
+            balloonShown = true;
+            setVisible (false);
+        }
+        else
+        {
+            setVisible (true);
+        }
     }
 
+    // ---- 关窗口：缩到状态栏，还是退出？ ----
     void closeButtonPressed() override
     {
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        if (main != nullptr && main->trayOnClose)
+            hideToTray();
+        else
+            quitNow();
     }
 
+    /** 缩到状态栏（窗口藏起来，音频继续跑，图标还在状态栏上）。 */
+    void hideToTray()
+    {
+        setMinimised (false);
+        setVisible (false);
+
+        if (tray != nullptr && ! balloonShown)
+        {
+            balloonShown = true;      // 只提示一次，别老烦人
+            tray->showInfoBubble (L"MioNo",
+                                  L"已缩到状态栏，右键图标可以启动/停止或退出");
+        }
+    }
+
+    /** 从状态栏把窗口叫回来。 */
+    void showFromTray()
+    {
+        setVisible (true);
+        setMinimised (false);
+        toFront (true);
+    }
+
+    /** 真退出：先把托盘图标摘掉，免得系统里留个点不动的幽灵图标。 */
+    void quitNow()
+    {
+        if (tray != nullptr)
+            tray.reset();
+
+        if (auto* app = juce::JUCEApplication::getInstance())
+            app->systemRequestedQuit();
+    }
+
+    bool isInTray() const { return ! isVisible(); }
+
 private:
+    MainComponent* main = nullptr;
+    std::unique_ptr<TrayIcon> tray;
+    bool balloonShown = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
 };
 

@@ -280,6 +280,10 @@ public:
     void setBypass (bool b) { bypassAll.store (b); }
     bool getBypass() const  { return bypassAll.load(); }
 
+    // ---------------- 状态栏（托盘） ----------------
+    void setTrayOnClose (bool b) { trayOnClose.store (b); }
+    bool getTrayOnClose() const  { return trayOnClose.load(); }
+
     void rebuild()
     {
         const juce::ScopedLock sl (chainLock);
@@ -340,6 +344,7 @@ public:
         o->setProperty ("pan",       (double) pan.load());
         o->setProperty ("bypass",    bypassAll.load());
         o->setProperty ("layerOn",   layerOn.load());
+        o->setProperty ("trayOnClose", trayOnClose.load());
         o->setProperty ("layerGain", (double) layerGainDb.load());
         o->setProperty ("host",      currentHost);
         o->setProperty ("inDev",     currentInputName);
@@ -379,6 +384,7 @@ public:
         layerGainDb.store  ((float) (double) root.getProperty ("layerGain", -8.0));
         bypassAll.store    ((bool) root.getProperty ("bypass",  false));
         layerOn.store      ((bool) root.getProperty ("layerOn", false));
+        trayOnClose.store  ((bool) root.getProperty ("trayOnClose", true));
 
         currentHost       = root.getProperty ("host",   currentHost).toString();
         currentInputName  = root.getProperty ("inDev",  currentInputName).toString();
@@ -406,7 +412,9 @@ public:
     static void setAutoStart (bool on)
     {
        #if JUCE_WINDOWS
-        if (on) juce::WindowsRegistry::setValue (autoStartKey(), "\"" + exePath() + "\"");
+        // 注意：开机自启带上 --tray，开机后【直接缩到状态栏】，
+        // 不弹窗口（这正是"开机自启缩到状态栏"的实现方式）。
+        if (on) juce::WindowsRegistry::setValue (autoStartKey(), "\"" + exePath() + "\" --tray");
         else    juce::WindowsRegistry::deleteValue (autoStartKey());
        #else
         juce::ignoreUnused (on);
@@ -591,6 +599,7 @@ private:
     bool running     = false;
 
     std::atomic<bool>  bypassAll   { false };
+    std::atomic<bool>  trayOnClose { true };   // 关窗口时缩到状态栏
     std::atomic<bool>  layerOn     { false };
     std::atomic<float> layerGainDb { -8.0f };
     std::atomic<float> inputGainDb { 0.0f };

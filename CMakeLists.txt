@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(MioNo VERSION 6.1.0 LANGUAGES C CXX)
+project(MioNo VERSION 6.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,7 +41,7 @@ endif()
 juce_add_gui_app(MioNo
     PRODUCT_NAME  "MioNo"
     COMPANY_NAME  "MioNo"
-    VERSION       "6.1.0"
+    VERSION       "6.2.0"
     BUNDLE_ID     "com.miono.rack")
 
 # 源码
@@ -79,8 +79,10 @@ endif()
 
 # 链接 JUCE 模块
 # 体积优化：只留真正用到的模块。去掉 juce_audio_processors（不做 VST 宿主）、
-# juce_audio_utils（界面控件集，没用到）、juce_gui_extra（代码编辑器/浏览器，没用到）。
-# 注意 juce_audio_formats 不能去：juce_dsp 依赖它。
+# juce_audio_utils（界面控件集，没用到）。
+# 注意：
+#   · juce_audio_formats 不能去：juce_dsp 依赖它。
+#   · juce_gui_extra 必须留着：SystemTrayIconComponent（状态栏图标）在这个模块里。
 target_link_libraries(MioNo
     PRIVATE
         juce::juce_audio_basics
@@ -92,6 +94,7 @@ target_link_libraries(MioNo
         juce::juce_events
         juce::juce_graphics
         juce::juce_gui_basics
+        juce::juce_gui_extra
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

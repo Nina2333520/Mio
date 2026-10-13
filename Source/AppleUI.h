@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.1：电平条 Peak+RMS、效果链可增删上下移、标题栏绿点最大化
+//  v6.2：电平条 Peak+RMS、效果链可增删上下移、标题栏绿点最大化、可缩到状态栏
 // ============================================================================
 #pragma once
 
@@ -468,7 +468,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.1";
+    static constexpr const char* VERSION  = "v6.2";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
