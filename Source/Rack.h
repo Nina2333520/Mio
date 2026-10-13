@@ -1,5 +1,6 @@
 // ============================================================================
 //  MioNo - 预设 / 机架核心
+//  v6.1：输入/输出设备分开选、增益/声像、空灵层、配置存盘、开机自启、Peak+RMS
 // ============================================================================
 #pragma once
 
@@ -13,8 +14,11 @@ namespace miono
 // ---------------------------------------------------------------------------
 struct PresetDef
 {
-    const wchar_t* name;
-    std::vector<FxSlot> chain;
+    const wchar_t*      name;
+    std::vector<FxSlot> chain;        // 主效果链
+    bool                layerOn;      // 空灵层是否默认开
+    float               layerGainDb;  // 空灵层音量
+    std::vector<FxSlot> layer;        // 空灵层效果
 };
 
 inline FxSlot mkSlot (FxType t,
@@ -31,64 +35,72 @@ inline FxSlot mkSlot (FxType t,
 inline std::vector<PresetDef> presets()
 {
     return {
-        { L"聊天 / 游戏", {
-            mkSlot (FxType::SpectralDenoise, {{"strength", 0.55f}}),
-            mkSlot (FxType::Highpass,        {{"freq", 90.0f}, {"q", 0.707f}}),
-            mkSlot (FxType::NoiseGate,       {{"threshold", -48.0f}, {"attack", 3.0f}, {"release", 140.0f}}),
-            mkSlot (FxType::PeakEQ,          {{"freq", 240.0f}, {"q", 1.0f}, {"gain", -3.0f}}),
-            mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 2.5f}, {"attack", 8.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
-            mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
-        }},
-        { L"唱歌", {
-            mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
-            mkSlot (FxType::Highpass,        {{"freq", 100.0f}, {"q", 0.707f}}),
-            mkSlot (FxType::PeakEQ,          {{"freq", 300.0f}, {"q", 1.2f}, {"gain", -2.5f}}),
-            mkSlot (FxType::PeakEQ,          {{"freq", 3000.0f}, {"q", 1.0f}, {"gain", 1.5f}}),
-            mkSlot (FxType::Compressor,      {{"threshold", -18.0f}, {"ratio", 3.0f}, {"attack", 10.0f}, {"release", 100.0f}, {"knee", 6.0f}}),
-            mkSlot (FxType::Reverb,          {{"size", 0.45f}, {"damp", 0.5f}, {"wet", -12.0f}}),
-            mkSlot (FxType::Delay,           {{"time", 250.0f}, {"feedback", 0.25f}, {"wet", -18.0f}}),
-            mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
-        }},
-        { L"空灵", {
-            mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
-            mkSlot (FxType::Highpass,        {{"freq", 120.0f}, {"q", 0.707f}}),
-            mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 3.0f}, {"attack", 12.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
-            mkSlot (FxType::Reverb,          {{"size", 0.78f}, {"damp", 0.42f}, {"wet", -3.0f}}),
-            mkSlot (FxType::Delay,           {{"time", 375.0f}, {"feedback", 0.42f}, {"wet", -10.0f}}),
-            mkSlot (FxType::Octave,          {{"mix", -14.0f}}),
-            mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 80.0f}}),
-        }},
-        { L"电台厚声", {
-            mkSlot (FxType::SpectralDenoise, {{"strength", 0.5f}}),
-            mkSlot (FxType::Highpass,        {{"freq", 85.0f}, {"q", 0.707f}}),
-            mkSlot (FxType::Lowpass,         {{"freq", 11000.0f}, {"q", 0.707f}}),
-            mkSlot (FxType::PeakEQ,          {{"freq", 180.0f}, {"q", 1.0f}, {"gain", 3.5f}}),
-            mkSlot (FxType::PeakEQ,          {{"freq", 3000.0f}, {"q", 1.0f}, {"gain", 2.5f}}),
-            mkSlot (FxType::Compressor,      {{"threshold", -22.0f}, {"ratio", 4.0f}, {"attack", 6.0f}, {"release", 90.0f}, {"knee", 4.0f}}),
-            mkSlot (FxType::Limiter,         {{"ceiling", -0.8f}, {"release", 50.0f}}),
-        }},
+        { L"聊天 / 游戏",
+          {
+              mkSlot (FxType::SpectralDenoise, {{"strength", 0.55f}}),
+              mkSlot (FxType::Highpass,        {{"freq", 90.0f}, {"q", 0.707f}}),
+              mkSlot (FxType::NoiseGate,       {{"threshold", -48.0f}, {"attack", 3.0f}, {"release", 140.0f}}),
+              mkSlot (FxType::PeakEQ,          {{"freq", 240.0f}, {"q", 1.0f}, {"gain", -3.0f}}),
+              mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 2.5f}, {"attack", 8.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
+              mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
+          },
+          false, -8.0f, {} },
+
+        { L"唱歌",
+          {
+              mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
+              mkSlot (FxType::Highpass,        {{"freq", 100.0f}, {"q", 0.707f}}),
+              mkSlot (FxType::PeakEQ,          {{"freq", 300.0f}, {"q", 1.2f}, {"gain", -2.5f}}),
+              mkSlot (FxType::PeakEQ,          {{"freq", 3000.0f}, {"q", 1.0f}, {"gain", 1.5f}}),
+              mkSlot (FxType::Compressor,      {{"threshold", -18.0f}, {"ratio", 3.0f}, {"attack", 10.0f}, {"release", 100.0f}, {"knee", 6.0f}}),
+              mkSlot (FxType::Reverb,          {{"size", 0.45f}, {"damp", 0.5f}, {"wet", -12.0f}}),
+              mkSlot (FxType::Delay,           {{"time", 250.0f}, {"feedback", 0.25f}, {"wet", -18.0f}}),
+              mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
+          },
+          false, -8.0f, {} },
+
+        { L"空灵",
+          {
+              mkSlot (FxType::SpectralDenoise, {{"strength", 0.45f}}),
+              mkSlot (FxType::Highpass,        {{"freq", 120.0f}, {"q", 0.707f}}),
+              mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 3.0f}, {"attack", 12.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
+              mkSlot (FxType::Reverb,          {{"size", 0.78f}, {"damp", 0.42f}, {"wet", -3.0f}}),
+              mkSlot (FxType::Delay,           {{"time", 375.0f}, {"feedback", 0.42f}, {"wet", -10.0f}}),
+              mkSlot (FxType::Octave,          {{"mix", -14.0f}}),
+              mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 80.0f}}),
+          },
+          true, -8.0f,
+          {
+              mkSlot (FxType::Reverb,          {{"size", 0.88f}, {"damp", 0.30f}, {"wet", -2.0f}}),
+              mkSlot (FxType::Delay,           {{"time", 480.0f}, {"feedback", 0.36f}, {"wet", -11.0f}}),
+          } },
+
+        { L"电台厚声",
+          {
+              mkSlot (FxType::SpectralDenoise, {{"strength", 0.5f}}),
+              mkSlot (FxType::Highpass,        {{"freq", 85.0f}, {"q", 0.707f}}),
+              mkSlot (FxType::Lowpass,         {{"freq", 11000.0f}, {"q", 0.707f}}),
+              mkSlot (FxType::PeakEQ,          {{"freq", 180.0f}, {"q", 1.0f}, {"gain", 3.5f}}),
+              mkSlot (FxType::PeakEQ,          {{"freq", 3000.0f}, {"q", 1.0f}, {"gain", 2.5f}}),
+              mkSlot (FxType::Compressor,      {{"threshold", -22.0f}, {"ratio", 4.0f}, {"attack", 6.0f}, {"release", 90.0f}, {"knee", 4.0f}}),
+              mkSlot (FxType::Limiter,         {{"ceiling", -0.8f}, {"release", 50.0f}}),
+          },
+          false, -8.0f, {} },
     };
 }
 
 // ---------------------------------------------------------------------------
-// 机架：持有整条效果链 + 音频 IO + 电平统计
+// 机架
 // ---------------------------------------------------------------------------
 class Rack : public juce::AudioIODeviceCallback
 {
 public:
-    Rack()
-    {
-        applyPreset (1); // 默认唱歌
-    }
-
+    Rack()  { applyPreset (1); }        // 默认唱歌
     ~Rack() override { stop(); }
 
-    // ---------------- 设备枚举 ----------------
-    // ⚠️ JUCE 8 里 AudioIODeviceType::getAvailableDeviceTypes() 已经没有了
-    //   （AudioIODeviceType 头文件里明确写着：要拿驱动类型列表请走
-    //    AudioDeviceManager::createAudioDeviceTypes() / getAvailableDeviceTypes()）。
-    //   所以这里用一个只建一次、故意不析构的 AudioDeviceManager 来持有这些类型对象，
-    //   保证返回的指针在整个程序生命周期里都有效。
+    // ---------------- 驱动类型 / 设备枚举 ----------------
+    // JUCE 8 里 AudioIODeviceType::getAvailableDeviceTypes() 已经没有了，
+    // 要拿驱动类型列表得走 AudioDeviceManager。
     static const juce::OwnedArray<juce::AudioIODeviceType>& availableTypes()
     {
         static juce::AudioDeviceManager* mgr = new juce::AudioDeviceManager();
@@ -103,20 +115,22 @@ public:
         return a;
     }
 
-    static juce::StringArray listDevices (const juce::String& hostType)
+    // wantInput = true 取输入设备列表，false 取输出设备列表
+    static juce::StringArray listDevices (const juce::String& hostType, bool wantInput)
     {
         juce::StringArray out;
         for (auto* t : availableTypes())
             if (t->getTypeName() == hostType)
             {
                 t->scanForDevices();
-                out = t->getDeviceNames (false);
+                out = t->getDeviceNames (wantInput);
                 break;
             }
         return out;
     }
 
-    static juce::StringArray listChannels (const juce::String& hostType, const juce::String& dev, bool input)
+    static juce::StringArray listChannels (const juce::String& hostType,
+                                           const juce::String& dev, bool input)
     {
         juce::StringArray out;
         for (auto* t : availableTypes())
@@ -132,7 +146,8 @@ public:
 
     // ---------------- 开流 ----------------
     juce::String start (const juce::String& hostType,
-                        const juce::String& deviceName,
+                        const juce::String& inputDeviceName,
+                        const juce::String& outputDeviceName,
                         double sampleRate,
                         int blockSize)
     {
@@ -150,13 +165,16 @@ public:
             return L"找不到任何音频驱动";
 
         chosen->scanForDevices();
-        std::unique_ptr<juce::AudioIODevice> dev (
-            chosen->createDevice (deviceName, deviceName));
-        if (dev == nullptr)
-            return L"打不开设备：" + deviceName;
 
-        // 用设备支持的采样率 / 块大小，否则退回请求值
-        auto srOk = dev->getAvailableSampleRates();     // Array<double>
+        // 注意参数顺序：JUCE 是 createDevice (输出名, 输入名)
+        std::unique_ptr<juce::AudioIODevice> dev (
+            chosen->createDevice (outputDeviceName, inputDeviceName));
+
+        if (dev == nullptr)
+            return L"打不开设备：" + outputDeviceName + L" / " + inputDeviceName;
+
+        // 采样率 / 块大小对齐设备支持值
+        auto srOk = dev->getAvailableSampleRates();
         if (srOk.size() > 0)
         {
             bool found = false;
@@ -166,7 +184,7 @@ public:
                 sampleRate = srOk[0];
         }
 
-        auto bsOk = dev->getAvailableBufferSizes();     // Array<int>
+        auto bsOk = dev->getAvailableBufferSizes();
         if (bsOk.size() > 0)
         {
             bool found = false;
@@ -176,8 +194,7 @@ public:
                 blockSize = bsOk[0];
         }
 
-        // JUCE 的 open() 要的是「通道位掩码」(BigInteger)，不是通道名字列表 ——
-        // 这里按 JUCE 的推荐做法：优先用设备给的默认通道，否则把所有通道都打开。
+        // 通道掩码：优先用设备给的默认通道，否则把所有通道都打开
         juce::BigInteger inMask, outMask;
         if (auto def = dev->getDefaultInputChannels())  inMask  = *def;
         else inMask.setRange (0, dev->getInputChannelNames().size(), true);
@@ -189,12 +206,14 @@ public:
         if (err.isNotEmpty())
             return err;
 
-        currentDevice = std::move (dev);
-        currentHost   = hostType;
+        currentDevice     = std::move (dev);
+        currentHost       = hostType;
+        currentInputName  = inputDeviceName;
+        currentOutputName = outputDeviceName;
 
-        const auto sr = currentDevice->getCurrentSampleRate();
-        const auto bs = currentDevice->getCurrentBufferSizeSamples();
-        prepareChain (sr);
+        currentSampleRate = currentDevice->getCurrentSampleRate();
+        currentBlockSize  = currentDevice->getCurrentBufferSizeSamples();
+        rebuild();
 
         currentDevice->start (this);
         running = true;
@@ -210,13 +229,27 @@ public:
 
     bool isRunning() const { return running; }
 
+    double getSampleRate() const { return currentSampleRate; }
+    int    getBlockSize()  const { return currentBlockSize; }
+    juce::String getHost()       const { return currentHost; }
+    juce::String getInputName()  const { return currentInputName; }
+    juce::String getOutputName() const { return currentOutputName; }
+
     juce::String deviceInfo() const
     {
         if (currentDevice == nullptr) return L"未连接";
-        return currentHost + L" · " + currentDevice->getName()
-             + juce::String (L" · ") + juce::String (currentDevice->getCurrentSampleRate(), 0) + " Hz"
-             + juce::String (L" · ") + juce::String (currentDevice->getCurrentBufferSizeSamples()) + " smp";
+        return currentHost + L" · " + currentInputName + L" → " + currentOutputName
+             + juce::String (L" · ") + juce::String (currentSampleRate, 0) + L" Hz"
+             + juce::String (L" · ") + juce::String (currentBlockSize) + L" smp";
     }
+
+    // ---------------- 增益 / 声像 ----------------
+    void  setInputGainDb  (float db) { inputGainDb .store (juce::jlimit (-24.0f, 24.0f, db)); }
+    float getInputGainDb()   const   { return inputGainDb .load(); }
+    void  setOutputGainDb (float db) { outputGainDb.store (juce::jlimit (-24.0f, 24.0f, db)); }
+    float getOutputGainDb()  const   { return outputGainDb.load(); }
+    void  setPan (float p)           { pan.store (juce::jlimit (-1.0f, 1.0f, p)); }
+    float getPan()           const   { return pan.load(); }
 
     // ---------------- 效果链 ----------------
     void applyPreset (int idx)
@@ -224,17 +257,33 @@ public:
         auto ps = presets();
         if (idx < 0 || idx >= (int) ps.size()) idx = 0;
         presetIndex = idx;
-        slots = ps[(size_t) idx].chain;
+        {
+            const juce::ScopedLock sl (chainLock);
+            slots      = ps[(size_t) idx].chain;
+            layerSlots = ps[(size_t) idx].layer;
+        }
+        layerOn.store (ps[(size_t) idx].layerOn);
+        layerGainDb.store (ps[(size_t) idx].layerGainDb);
         rebuild();
     }
 
     int getPresetIndex() const { return presetIndex; }
-    const std::vector<FxSlot>& getSlots() const { return slots; }
-    std::vector<FxSlot>& getSlotsMutable() { return slots; }
+
+    std::vector<FxSlot>& getSlots()      { return slots; }
+    std::vector<FxSlot>& getLayerSlots() { return layerSlots; }
+
+    void  setLayerOn (bool b)        { layerOn.store (b); }
+    bool  getLayerOn() const         { return layerOn.load(); }
+    void  setLayerGainDb (float db)  { layerGainDb.store (juce::jlimit (-40.0f, 6.0f, db)); }
+    float getLayerGainDb() const     { return layerGainDb.load(); }
+
+    void setBypass (bool b) { bypassAll.store (b); }
+    bool getBypass() const  { return bypassAll.load(); }
 
     void rebuild()
     {
         const juce::ScopedLock sl (chainLock);
+
         runtimes.clear();
         runtimes.reserve (slots.size());
         for (const auto& s : slots)
@@ -244,17 +293,116 @@ public:
             r.configure (s);
             runtimes.push_back (std::move (r));
         }
+
+        layerRuntimes.clear();
+        layerRuntimes.reserve (layerSlots.size());
+        for (const auto& s : layerSlots)
+        {
+            FxRuntime r;
+            r.prepare (currentSampleRate);
+            r.configure (s);
+            layerRuntimes.push_back (std::move (r));
+        }
     }
 
-    void setBypass (bool b) { bypassAll = b; }
-    bool getBypass() const  { return bypassAll; }
+    // ---------------- 电平 / 统计 ----------------
+    float  getInLevel()   const { return inLevel.load(); }
+    float  getOutPeak()   const { return outPeak.load(); }
+    float  getOutRms()    const { return outRms.load(); }
+    bool   getClipping()  const { return clipping.load(); }
+    void   clearClipping()      { clipping.store (false); }
+    double getBlockMs()   const { return blockMs.load(); }
+    int    getXruns()     const { return xruns.load(); }
 
-    // 单声道电平（0..1）
-    float getInLevel()  const { return inLevel.load(); }
-    float getOutLevel() const { return outLevel.load(); }
-    bool  getClipping() const { return clipping.load(); }
-    double getBlockMs() const { return blockMs.load(); }
-    int    getXruns()   const { return xruns.load(); }
+    // ---------------- 配置存盘 ----------------
+    static juce::File defaultConfigFile()
+    {
+        return juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                   .getParentDirectory().getChildFile (L"MioNo配置.json");
+    }
+
+    juce::String saveConfig (const juce::File& f) const
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("version",   6);
+        o->setProperty ("preset",    presetIndex);
+        o->setProperty ("inGain",    (double) inputGainDb.load());
+        o->setProperty ("outGain",   (double) outputGainDb.load());
+        o->setProperty ("pan",       (double) pan.load());
+        o->setProperty ("bypass",    bypassAll.load());
+        o->setProperty ("layerOn",   layerOn.load());
+        o->setProperty ("layerGain", (double) layerGainDb.load());
+        o->setProperty ("host",      currentHost);
+        o->setProperty ("inDev",     currentInputName);
+        o->setProperty ("outDev",    currentOutputName);
+        o->setProperty ("rate",      currentSampleRate);
+        o->setProperty ("block",     currentBlockSize);
+
+        {
+            const juce::ScopedLock sl (chainLock);
+            o->setProperty ("chain", slotsToVar (slots));
+            o->setProperty ("layer", slotsToVar (layerSlots));
+        }
+
+        const juce::var root (o);
+        if (! f.replaceWithText (juce::JSON::toString (root, false)))
+            return L"写入失败：" + f.getFullPathName();
+
+        return {};
+    }
+
+    juce::String loadConfig (const juce::File& f)
+    {
+        if (! f.existsAsFile())
+            return L"文件不存在：" + f.getFullPathName();
+
+        const auto root = juce::JSON::parse (f);
+        if (! root.isObject())
+            return L"配置文件格式不对";
+
+        const int pi = (int) root.getProperty ("preset", 1);
+        if (pi >= 0 && pi < (int) presets().size())
+            presetIndex = pi;
+
+        inputGainDb .store ((float) (double) root.getProperty ("inGain",    0.0));
+        outputGainDb.store ((float) (double) root.getProperty ("outGain",   0.0));
+        pan.store          ((float) (double) root.getProperty ("pan",      0.0));
+        layerGainDb.store  ((float) (double) root.getProperty ("layerGain", -8.0));
+        bypassAll.store    ((bool) root.getProperty ("bypass",  false));
+        layerOn.store      ((bool) root.getProperty ("layerOn", false));
+
+        currentHost       = root.getProperty ("host",   currentHost).toString();
+        currentInputName  = root.getProperty ("inDev",  currentInputName).toString();
+        currentOutputName = root.getProperty ("outDev", currentOutputName).toString();
+
+        {
+            const juce::ScopedLock sl (chainLock);
+            slots      = slotsFromVar (root.getProperty ("chain", juce::var()));
+            layerSlots = slotsFromVar (root.getProperty ("layer", juce::var()));
+        }
+        rebuild();
+        return {};
+    }
+
+    // ---------------- 开机自启（写 HKCU\...\Run） ----------------
+    static bool getAutoStart()
+    {
+       #if JUCE_WINDOWS
+        return juce::WindowsRegistry::valueExists (autoStartKey());
+       #else
+        return false;
+       #endif
+    }
+
+    static void setAutoStart (bool on)
+    {
+       #if JUCE_WINDOWS
+        if (on) juce::WindowsRegistry::setValue (autoStartKey(), "\"" + exePath() + "\"");
+        else    juce::WindowsRegistry::deleteValue (autoStartKey());
+       #else
+        juce::ignoreUnused (on);
+       #endif
+    }
 
     // ---------------- AudioIODeviceCallback ----------------
     void audioDeviceIOCallbackWithContext (const float* const* in, int numIn,
@@ -275,75 +423,174 @@ public:
         }
 
         const float* src = in[0];
-        float*       dst = out[0];
 
         const juce::ScopedTryLock stl (chainLock);
         if (! stl.isLocked())
         {
-            juce::FloatVectorOperations::copy (dst, src, numSamples);
+            xruns.fetch_add (1);
+            if (out[0] != nullptr)
+                juce::FloatVectorOperations::copy (out[0], src, numSamples);
             recordTime (t0);
             return;
         }
 
-        float peakIn = 0.0f, peakOut = 0.0f;
+        const float inGain   = juce::Decibels::decibelsToGain (inputGainDb.load());
+        const float outGain  = juce::Decibels::decibelsToGain (outputGainDb.load());
+        const bool  bypass   = bypassAll.load();
+        const bool  useLayer = layerOn.load() && ! layerRuntimes.empty();
+        const float layGain  = useLayer ? juce::Decibels::decibelsToGain (layerGainDb.load()) : 0.0f;
+
+        // 等功率声像（-1 全左，0 居中，+1 全右）
+        const float panAngle = (pan.load() + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+        const float panL = std::cos (panAngle);
+        const float panR = std::sin (panAngle);
+
+        const bool stereoOut = (numOut >= 2 && out[1] != nullptr);
+
+        float peakIn = 0.0f, peakOut = 0.0f, sumSq = 0.0f;
+
         for (int i = 0; i < numSamples; ++i)
         {
-            float x = src[i];
+            const float dry = src[i];
+            const float x   = dry * inGain;
             peakIn = juce::jmax (peakIn, std::fabs (x));
 
-            if (! bypassAll)
+            float y = x;
+            if (! bypass)
+            {
                 for (auto& r : runtimes)
-                    x = r.process (x);
+                    y = r.process (y);
 
-            // 软限幅保护
-            if (x > 1.0f)  x = 1.0f;
-            if (x < -1.0f) x = -1.0f;
+                if (useLayer)
+                {
+                    float l = x;
+                    for (auto& r : layerRuntimes)
+                        l = r.process (l);
+                    y += l * layGain;
+                }
+            }
 
-            dst[i] = x;
-            peakOut = juce::jmax (peakOut, std::fabs (x));
+            y *= outGain;
+            if (y >  1.0f) y =  1.0f;
+            if (y < -1.0f) y = -1.0f;
+
+            if (stereoOut)
+            {
+                out[0][i] = y * panL;
+                out[1][i] = y * panR;
+            }
+            else if (out[0] != nullptr)
+            {
+                out[0][i] = y;
+            }
+
+            peakOut = juce::jmax (peakOut, std::fabs (y));
+            sumSq += y * y;
         }
 
         inLevel.store (peakIn);
-        outLevel.store (peakOut);
-        if (peakOut >= 0.999f) clipping.store (true);
+        outPeak.store (peakOut);
+        outRms .store (std::sqrt (sumSq / (float) numSamples));
+        if (peakOut >= 0.999f)
+            clipping.store (true);
+
         recordTime (t0);
     }
 
     void audioDeviceAboutToStart (juce::AudioIODevice* d) override
     {
         currentSampleRate = d->getCurrentSampleRate();
+        currentBlockSize  = d->getCurrentBufferSizeSamples();
         rebuild();
     }
 
     void audioDeviceStopped() override {}
 
 private:
-    void prepareChain (double sr)
+    static juce::String exePath()
     {
-        currentSampleRate = sr;
-        rebuild();
+        return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName();
+    }
+
+    static juce::String autoStartKey()
+    {
+        return "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\MioNo";
+    }
+
+    static juce::var slotsToVar (const std::vector<FxSlot>& v)
+    {
+        juce::Array<juce::var> arr;
+        for (const auto& s : v)
+        {
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("type", (int) s.type);
+            o->setProperty ("on",   s.on);
+
+            auto* ps = new juce::DynamicObject();
+            for (const auto& kv : s.params)
+                ps->setProperty (juce::Identifier (kv.first), (double) kv.second);
+
+            o->setProperty ("params", juce::var (ps));
+            arr.add (juce::var (o));
+        }
+        return juce::var (arr);
+    }
+
+    static std::vector<FxSlot> slotsFromVar (const juce::var& v)
+    {
+        std::vector<FxSlot> out;
+        if (! v.isArray())
+            return out;
+
+        for (int i = 0; i < v.size(); ++i)
+        {
+            const auto& e = v[i];
+            if (! e.isObject())
+                continue;
+
+            FxSlot s;
+            s.type = fxTypeFromIndex ((int) e.getProperty ("type", 0));
+            s.on   = (bool) e.getProperty ("on", true);
+
+            if (auto* obj = e.getProperty ("params", juce::var()).getDynamicObject())
+                for (const auto& p : obj->getProperties())
+                    s.params[p.name.toString()] = (float) (double) p.value;
+
+            out.push_back (std::move (s));
+        }
+        return out;
     }
 
     void recordTime (juce::int64 t0)
     {
         const auto t1 = juce::Time::getHighResolutionTicks();
-        const double ms = juce::Time::highResolutionTicksToSeconds (t1 - t0) * 1000.0;
-        blockMs.store (ms);
+        blockMs.store (juce::Time::highResolutionTicksToSeconds (t1 - t0) * 1000.0);
     }
 
     std::unique_ptr<juce::AudioIODevice> currentDevice;
-    juce::String currentHost;
+    juce::String currentHost, currentInputName, currentOutputName;
     double currentSampleRate = 48000.0;
+    int    currentBlockSize  = 256;
 
     std::vector<FxSlot>    slots;
     std::vector<FxRuntime> runtimes;
+    std::vector<FxSlot>    layerSlots;
+    std::vector<FxRuntime> layerRuntimes;
     juce::CriticalSection  chainLock;
+
     int  presetIndex = 1;
-    bool running = false;
-    bool bypassAll = false;
+    bool running     = false;
+
+    std::atomic<bool>  bypassAll   { false };
+    std::atomic<bool>  layerOn     { false };
+    std::atomic<float> layerGainDb { -8.0f };
+    std::atomic<float> inputGainDb { 0.0f };
+    std::atomic<float> outputGainDb{ 0.0f };
+    std::atomic<float> pan         { 0.0f };
 
     std::atomic<float>  inLevel  { 0.0f };
-    std::atomic<float>  outLevel { 0.0f };
+    std::atomic<float>  outPeak  { 0.0f };
+    std::atomic<float>  outRms   { 0.0f };
     std::atomic<bool>   clipping { false };
     std::atomic<double> blockMs  { 0.0 };
     std::atomic<int>    xruns    { 0 };

@@ -1,6 +1,6 @@
 // ============================================================================
-//  MioNo - 主界面（苹果风无边框窗口）
-//  对应 Python 版 MioNo.py 的 TitleBar + Win + ChainEditor
+//  MioNo - 主界面组件（苹果风无边框窗口）
+//  v6.1：电平条 Peak+RMS、效果链可增删上下移、标题栏绿点最大化
 // ============================================================================
 #pragma once
 
@@ -12,32 +12,59 @@ namespace miono
 {
 
 // ---------------------------------------------------------------------------
-// 电平条 —— 自绘圆角渐变，对应 Python 版 LevelBar
+// 电平条 —— 上面一条 Peak（绿→红），下面一条 RMS（蓝），右端 CLIP 红块
 // ---------------------------------------------------------------------------
 class LevelBar : public juce::Component
 {
 public:
-    void setLevel (float v) { level = juce::jlimit (0.0f, 1.0f, v); repaint(); }
-    void setClip (bool c)   { if (clip != c) { clip = c; repaint(); } }
+    void setLevels (float peakLevel, float rmsLevel)
+    {
+        const float p = juce::jlimit (0.0f, 1.0f, peakLevel);
+        const float r = juce::jlimit (0.0f, 1.0f, rmsLevel);
+        if (std::abs (p - peak) > 0.001f || std::abs (r - rms) > 0.001f)
+        {
+            peak = p;
+            rms  = r;
+            repaint();
+        }
+    }
+
+    void setClip (bool c) { if (clip != c) { clip = c; repaint(); } }
 
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
+
         g.setColour (AppleColors::Line);
         g.fillRoundedRectangle (r, 4.0f);
 
-        if (level > 0.005f)
+        const float barH = juce::jmax (2.0f, (r.getHeight() - 3.0f) * 0.5f);
+        const float topY = r.getY() + 1.0f;
+        const float botY = topY + barH + 1.0f;
+
+        // Peak
+        if (peak > 0.005f)
         {
-            // dB 感知：非线性映射，低电平也看得见
-            const float db = juce::Decibels::gainToDecibels (level, -60.0f);
+            const float db = juce::Decibels::gainToDecibels (peak, -60.0f);
             const float t  = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
-            const float w  = r.getWidth() * t;
+            const float w  = juce::jmax (3.0f, r.getWidth() * t);
 
             juce::ColourGradient grad (AppleColors::Green, r.getX(), 0.0f,
                                        AppleColors::Red,   r.getRight(), 0.0f, false);
             grad.addColour (0.72, AppleColors::Orange);
             g.setGradientFill (grad);
-            g.fillRoundedRectangle (r.withWidth (juce::jmax (4.0f, w)), 4.0f);
+            g.fillRoundedRectangle (r.getX(), topY, w, barH, 2.0f);
+        }
+
+        // RMS
+        if (rms > 0.005f)
+        {
+            const float db = juce::Decibels::gainToDecibels (rms, -60.0f);
+            const float t  = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
+            const float w  = juce::jmax (3.0f, r.getWidth() * t);
+
+            g.setColour (AppleColors::Acc);
+            g.fillRoundedRectangle (r.getX(), botY, w, barH, 2.0f);
         }
 
         if (clip)
@@ -48,12 +75,12 @@ public:
     }
 
 private:
-    float level = 0.0f;
-    bool  clip  = false;
+    float peak = 0.0f, rms = 0.0f;
+    bool  clip = false;
 };
 
 // ---------------------------------------------------------------------------
-// 状态小灯 —— 对应 Python 版 Lamp
+// 状态小灯
 // ---------------------------------------------------------------------------
 class Lamp : public juce::Component
 {
@@ -85,7 +112,6 @@ private:
 // ---------------------------------------------------------------------------
 // 单个效果的参数面板
 // ---------------------------------------------------------------------------
-// 每个效果有哪些旋钮（与 FxEngine 的 configure 对应）
 struct KnobDef
 {
     juce::String id;
@@ -177,14 +203,12 @@ public:
         repaint();
     }
 
-    // 把界面上的值写回 slot
     void commit (FxSlot& slot) const
     {
         auto defs = knobsFor (slot.type);
         const juce::Slider* arr[5] = { &sStrength, &sA, &sB, &sC, &sD };
         for (size_t i = 0; i < defs.size() && i < 5; ++i)
             slot.set (defs[i].id, (float) arr[i]->getValue());
-        juce::ignoreUnused (slot);
     }
 
     void resized() override
@@ -223,21 +247,39 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// 效果链列表（左）
+// 效果链编辑器（类型下拉 + 列表 + ＋ / ↑ / ↓ / 🗑）
 // ---------------------------------------------------------------------------
 class ChainList : public juce::Component,
                   public juce::ListBoxModel
 {
 public:
-    std::function<void (int)> onSelect;
+    std::function<void (int)>     onSelect;
+    std::function<void (FxType)>  onAdd;
+    std::function<void()>         onMoveUp, onMoveDown, onDelete;
 
     ChainList()
     {
         list.setModel (this);
-        list.setRowHeight (30);
+        list.setRowHeight (28);
         list.setColour (juce::ListBox::backgroundColourId, AppleColors::Card);
         list.setOutlineThickness (0);
         addAndMakeVisible (list);
+
+        for (int i = 0; i < fxTypeCount(); ++i)
+            kind.addItem (fxName (fxTypeFromIndex (i)), i + 1);
+        kind.setSelectedId (1, juce::dontSendNotification);
+        addAndMakeVisible (kind);
+
+        auto setup = [this] (juce::TextButton& b, const juce::String& t, std::function<void()> fn)
+        {
+            b.setButtonText (t);
+            b.onClick = std::move (fn);
+            addAndMakeVisible (b);
+        };
+        setup (btnAdd,  L"＋", [this] { if (onAdd) onAdd (fxTypeFromIndex (kind.getSelectedId() - 1)); });
+        setup (btnUp,   L"↑", [this] { if (onMoveUp) onMoveUp(); });
+        setup (btnDown, L"↓", [this] { if (onMoveDown) onMoveDown(); });
+        setup (btnDel,  L"🗑", [this] { if (onDelete) onDelete(); });
     }
 
     void setSlots (const std::vector<FxSlot>* s)
@@ -250,8 +292,21 @@ public:
     }
 
     int getSelectedRow() const { return selectedRow; }
+    void setSelectedRow (int row) { selectedRow = row; }
 
-    void resized() override { list.setBounds (getLocalBounds().reduced (1)); }
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        auto top = r.removeFromTop (28);
+        kind.setBounds (top.removeFromLeft (juce::jmax (80, top.getWidth() - 128)));
+        top.removeFromLeft (4);
+        btnAdd .setBounds (top.removeFromLeft (28));
+        btnUp  .setBounds (top.removeFromLeft (28));
+        btnDown.setBounds (top.removeFromLeft (28));
+        btnDel .setBounds (top.removeFromLeft (28));
+        r.removeFromTop (4);
+        list.setBounds (r.reduced (1));
+    }
 
     int getNumRows() override
     {
@@ -273,7 +328,6 @@ public:
             g.drawRoundedRectangle (r, 7.0f, 1.0f);
         }
 
-        // 开关圆点
         const float d = 8.0f;
         auto dot = juce::Rectangle<float> (9.0f, (float) height * 0.5f - d * 0.5f, d, d);
         g.setColour (s.on ? AppleColors::Green : AppleColors::Line2);
@@ -281,11 +335,9 @@ public:
 
         g.setColour (selected ? AppleColors::Acc : AppleColors::Txt);
         g.setFont (AppleLookAndFeel::getAppFont (13.0f));
-        g.drawText (juce::String (s.on ? "" : "") + fxName (s.type),
-                    24, 0, width - 30, height,
+        g.drawText (fxName (s.type), 24, 0, width - 46, height,
                     juce::Justification::centredLeft, false);
 
-        // 序号
         g.setColour (AppleColors::Dim);
         g.setFont (AppleLookAndFeel::getAppFont (11.0f));
         g.drawText (juce::String (row + 1), width - 24, 0, 18, height,
@@ -299,13 +351,15 @@ public:
     }
 
 private:
-    juce::ListBox list;
+    juce::ListBox    list;
+    juce::ComboBox   kind;
+    juce::TextButton btnAdd, btnUp, btnDown, btnDel;
     const std::vector<FxSlot>* slots = nullptr;
     int selectedRow = 0;
 };
 
 // ---------------------------------------------------------------------------
-// 自绘标题栏 —— 对应 Python 版 TitleBar（红黄绿圆点 + 头像 + 标题 + 状态灯）
+// 自绘标题栏（红黄绿圆点 + 头像 + 标题 + 状态灯）
 // ---------------------------------------------------------------------------
 class TitleBar : public juce::Component
 {
@@ -316,13 +370,12 @@ public:
         addAndMakeVisible (lampRun);
     }
 
-    std::function<void()> onClose, onMinimise;
+    std::function<void()> onClose, onMinimise, onMaximise;
 
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
 
-        // 顶部圆角（继承窗口的圆角）
         juce::Path p;
         const float rad = 13.0f;
         p.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight() + rad,
@@ -333,7 +386,6 @@ public:
         g.setColour (AppleColors::Line);
         g.drawLine (0.0f, r.getBottom() - 0.5f, r.getWidth(), r.getBottom() - 0.5f, 1.0f);
 
-        // 红黄绿圆点
         const float d = 12.0f, gap = 7.0f;
         float x = 15.0f;
         const float cy = r.getHeight() * 0.5f;
@@ -341,7 +393,6 @@ public:
         drawDot (g, x, cy, d, AppleColors::Orange);     x += d + gap;
         drawDot (g, x, cy, d, AppleColors::Green);
 
-        // 头像
         const float ax = 15.0f + d * 3.0f + gap * 2.0f + 14.0f;
         const float asz = 26.0f;
         juce::Rectangle<float> av (ax, cy - asz * 0.5f, asz, asz);
@@ -351,7 +402,6 @@ public:
         g.setFont (AppleLookAndFeel::getBoldFont (13.0f));
         g.drawText ("M", av, juce::Justification::centred, false);
 
-        // 标题
         g.setColour (AppleColors::Txt);
         g.setFont (AppleLookAndFeel::getBoldFont (14.5f));
         g.drawText (juce::String (APP_NAME) + " " + VERSION,
@@ -368,7 +418,6 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        // 红黄绿点击
         const float d = 12.0f, gap = 7.0f;
         float x = 15.0f;
         for (int i = 0; i < 3; ++i)
@@ -377,11 +426,12 @@ public:
             {
                 if (i == 0 && onClose)    { onClose();    return; }
                 if (i == 1 && onMinimise) { onMinimise(); return; }
+                if (i == 2 && onMaximise) { onMaximise(); return; }
                 return;
             }
             x += d + gap;
         }
-        // 其余区域拖动窗口
+
         dragStart = e.getScreenPosition();
         if (auto* w = getTopLevelComponent())
             if (auto* dw = dynamic_cast<juce::DocumentWindow*> (w))
@@ -406,14 +456,19 @@ public:
         dragWinStart = {};
     }
 
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        if (onMaximise) onMaximise();
+    }
+
     void refresh()
     {
-        lampAsio.setOn (rack.getBlockMs() >= 0.0 && rack.isRunning());
+        lampAsio.setOn (rack.isRunning());
         lampRun .setOn (rack.isRunning());
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.0";
+    static constexpr const char* VERSION  = "v6.1";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)

@@ -11,7 +11,7 @@ public:
     MioNoApplication() = default;
 
     const juce::String getApplicationName() override    { return "MioNo"; }
-    const juce::String getApplicationVersion() override { return "6.0"; }
+    const juce::String getApplicationVersion() override { return "6.1"; }
     bool moreThanOneInstanceAllowed() override          { return true; }
 
     void initialise (const juce::String&) override

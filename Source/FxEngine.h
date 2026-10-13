@@ -52,6 +52,14 @@ inline const wchar_t* fxName (FxType t)
     }
 }
 
+// 效果总数 + 下标互转（界面下拉框用）
+inline constexpr int fxTypeCount() { return 10; }
+
+inline FxType fxTypeFromIndex (int i)
+{
+    return (FxType) juce::jlimit (0, fxTypeCount() - 1, i);
+}
+
 // ---------------------------------------------------------------------------
 // 参数：一个效果槽 = 类型 + 开关 + 若干旋钮值
 // ---------------------------------------------------------------------------
