@@ -348,21 +348,33 @@ exit /b 0
 :MERGE
 echo.
 echo   ------------------------------------------------------------
-echo   推送被拒绝：远程仓库里已经有内容了。
-echo   大概率是上一次推送只成功了一部分。
-echo   正在自动合并远程内容，稍等...
+echo   推送被拒绝：远程仓库里已经有别的提交了。
+echo   正在把本地内容对齐到远程最新（以你眼前的文件为准）...
 echo   ------------------------------------------------------------
 echo.
 
-REM 允许历史不相关，冲突时保留本地版本
-"!GIT_EXE!" -c user.name=MioNo -c user.email=miono@local pull origin main --no-rebase --allow-unrelated-histories -X ours --no-edit > "!_PLOG!" 2>&1
+REM ---------------------------------------------------------------
+REM  这里【故意不用 git pull 合并】！
+REM  合并会把远程的旧内容混进本地（我们踩过坑：合并后 CMakeLists.txt
+REM  少了 juce_gui_extra、MainWindow.h 多出一份重复的成员变量，直接编译失败）。
+REM
+REM  改成「镜像」做法：先把分支指针挪到远程最新（--soft 不动工作区），
+REM  再 add -A + commit —— 这样这次提交的内容完全等于眼前的这些文件，
+REM  一个字节都不会被远程的旧东西污染。
+REM ---------------------------------------------------------------
+"!GIT_EXE!" fetch origin main
 set "RC=!errorlevel!"
-if exist "!_PLOG!" type "!_PLOG!"
-
 if !RC! neq 0 goto FORCE_PUSH
 
+"!GIT_EXE!" reset --soft FETCH_HEAD
+set "RC=!errorlevel!"
+if !RC! neq 0 goto FORCE_PUSH
+
+"!GIT_EXE!" add -A
+"!GIT_EXE!" -c user.name=MioNo -c user.email=miono@local commit -q -m "MioNo C++ / JUCE"
+
 echo.
-echo   合并完成，重新推送...
+echo   已把本地内容对齐到远程最新，重新推送...
 "!GIT_EXE!" push -u origin main
 set "RC=!errorlevel!"
 if !RC! neq 0 goto FORCE_PUSH
@@ -370,7 +382,7 @@ goto AFTER_PUSH
 
 :FORCE_PUSH
 echo.
-echo   自动合并遇到麻烦，改为强制覆盖远程内容...
+echo   对齐失败，改为强制覆盖远程内容...
 "!GIT_EXE!" push -u origin main --force
 set "RC=!errorlevel!"
 if !RC! neq 0 goto FAILED
