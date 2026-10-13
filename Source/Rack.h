@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 预设 / 机架核心
-//  v6.9：启动时自动开流；头像透明底完整显示
+//  v7.0：整链（含空灵层）之后加总限幅兜底，避免叠加过冲直接硬削波
 // ============================================================================
 #pragma once
 
@@ -374,6 +374,13 @@ public:
             r.configure (s);
             layerRuntimes.push_back (std::move (r));
         }
+
+        // 总输出限幅：空灵层是在主链（含末端限幅器）之后叠加的，
+        // 这里单独准备一级砖墙限幅，兜住最终电平，避免直接硬削波。
+        outputLimiter.ceilingDb = -1.0f;
+        outputLimiter.releaseMs = 60.0f;
+        outputLimiter.sr        = currentSampleRate;
+        outputLimiter.reset();
     }
 
     // ---------------- 电平 / 统计 ----------------
@@ -625,6 +632,13 @@ public:
             }
 
             y *= outGain;
+
+            // 总限幅兜底：空灵层叠加在主链之后，主链末端的限幅器管不到它，
+            // 这里对最终信号再过一级砖墙限幅（瞬时起音、平滑释放），
+            // 把过冲压回 -1 dBFS 以内，而不是直接硬削波产生破音。
+            y = outputLimiter.process (y);
+
+            // 极端情况下的最后一道保护
             if (y >  1.0f) y =  1.0f;
             if (y < -1.0f) y = -1.0f;
 
@@ -736,6 +750,7 @@ private:
     std::vector<FxRuntime> layerRuntimes;
     std::vector<FxSlot>    customSlots;
     std::vector<FxSlot>    customLayerSlots;
+    LimiterFx              outputLimiter;   // 总输出限幅（兜住空灵层叠加后的过冲）
     juce::CriticalSection  chainLock;
 
     int  presetIndex = 1;

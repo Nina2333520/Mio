@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.9：标题栏显示透明底完整人物头像
+//  v7.0：标题栏透明底完整人物头像；整链后总限幅兜底
 // ============================================================================
 #pragma once
 
@@ -507,7 +507,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.9";
+    static constexpr const char* VERSION  = "v7.0";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
