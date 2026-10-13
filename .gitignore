@@ -31,3 +31,6 @@ desktop.ini
 # 临时
 *.log
 *.tmp
+
+# 第三方 SDK（构建时按各自许可单独获取，不提交到仓库）
+third_party/asio/

@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(MioNo VERSION 6.3.0 LANGUAGES C CXX)
+project(MioNo VERSION 6.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,7 +41,7 @@ endif()
 juce_add_gui_app(MioNo
     PRODUCT_NAME  "MioNo"
     COMPANY_NAME  "MioNo"
-    VERSION       "6.3.0"
+    VERSION       "6.4.0"
     BUNDLE_ID     "com.miono.rack")
 
 # 源码
@@ -101,14 +101,31 @@ target_link_libraries(MioNo
         juce::juce_recommended_warning_flags)
 
 # ---------------------------------------------------------------------------
-# Windows：ASIO 按需启用 + 系统库
+# Windows：ASIO + WASAPI
 # ---------------------------------------------------------------------------
+# Steinberg SDK headers are fetched by CI into the runner's temporary directory;
+# never commit third-party ASIO SDK files into this public repository.
+# Local builds may pass -DMIONO_ASIO_SDK_DIR=<.../ASIOSDK/common>.
+option(MIONO_ENABLE_ASIO "Enable ASIO when the Steinberg SDK headers are available" ON)
+set(MIONO_ASIO_SDK_DIR "" CACHE PATH "Path to Steinberg ASIO SDK common headers")
+
 if (WIN32)
-    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules/juce_audio_devices/native/asio")
+    if (MIONO_ASIO_SDK_DIR STREQUAL "")
+        set(_miono_local_asio "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio/ASIOSDK/common")
+        if (EXISTS "${_miono_local_asio}/iasiodrv.h")
+            set(MIONO_ASIO_SDK_DIR "${_miono_local_asio}")
+        endif()
+    endif()
+
+    if (MIONO_ENABLE_ASIO AND EXISTS "${MIONO_ASIO_SDK_DIR}/iasiodrv.h")
         target_compile_definitions(MioNo PRIVATE JUCE_ASIO=1)
-        message(STATUS "ASIO SDK found - ASIO enabled")
+        target_include_directories(MioNo PRIVATE "${MIONO_ASIO_SDK_DIR}")
+        set(MIONO_ASIO_ENABLED ON)
+        message(STATUS "MIONO_DIAG_ASIO=ON (${MIONO_ASIO_SDK_DIR})")
     else()
-        message(STATUS "ASIO SDK not found - using WASAPI only")
+        target_compile_definitions(MioNo PRIVATE JUCE_ASIO=0)
+        set(MIONO_ASIO_ENABLED OFF)
+        message(STATUS "MIONO_DIAG_ASIO=OFF (WASAPI fallback remains enabled)")
     endif()
 
     target_link_libraries(MioNo PRIVATE

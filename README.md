@@ -19,7 +19,7 @@
 
 ```
 ┌──────────────────────────────────────────────┐
-│ 🔴🟡🟢  (M) MioNo v6.3        ● ASIO  ● 运行 │  ← 自绘标题栏
+│ 🔴🟡🟢  (M) MioNo v6.4        ● ASIO  ● 运行 │  ← 自绘标题栏
 ├──────────────────────────────────────────────┤
 │ ① 设备                                        │
 │   输入 [___________]  [🔄 刷新]               │
@@ -108,10 +108,26 @@ MioNoCpp/
     └── FxEngine.h              # 全部 DSP 实现
 ```
 
+## 音频后端
+
+Windows 构建包含 **ASIO 和 WASAPI**：设备列表中的驱动类型可切换。启动时如果检测到 ASIO，会优先选中 ASIO；也可手动切换到 WASAPI。使用 ASIO 前需先安装声卡/虚拟声卡厂商提供的 ASIO 驱动。GitHub Actions 从 Steinberg 官方站点获取 ASIO SDK 2.3.4，并在构建前校验 SHA-256；SDK 文件不存放在本仓库中。
+
+本地编译如需 ASIO，请先从 [Steinberg ASIO SDK 页面](https://www.steinberg.net/developers/asiosdk-open/) 获取 SDK 并接受相应许可，再运行：
+
+```bash
+cmake -B build -G "Visual Studio 17 2022" -A x64 -DMIONO_ASIO_SDK_DIR="C:/path/to/ASIOSDK/common"
+cmake --build build --config Release --parallel
+```
+
+不提供 SDK 时，CMake 会保留 WASAPI 并关闭 ASIO；GitHub 发布工作流则会在 ASIO 未实际启用时停止，不发布只有 WASAPI 的误导性产物。
+
 ## 依赖
 
-只有 [JUCE](https://github.com/juce-framework/JUCE)（8.0.7），通过 git submodule 引入。没有其他第三方库。
+- [JUCE](https://github.com/juce-framework/JUCE) 8.0.7
+- [Steinberg ASIO SDK](https://www.steinberg.net/developers/asiosdk-open/) 2.3.4（Windows；构建时从官方站点获取）
 
 ## 许可
 
-JUCE 采用 AGPLv3 / 商业双许可。个人开源使用走 AGPLv3 即可。
+本项目及 JUCE 8.0.7 按 **GNU AGPLv3** 路线提供；ASIO SDK 按其双许可中的 **GPLv3** 路线使用。完整文本见 `LICENSE` 和 `LICENSE-ASIO-GPL-3.0.txt`，第三方来源、版本及校验信息见 `THIRD_PARTY_NOTICES.txt`。本仓库不重新分发 Steinberg SDK 文件。
+
+使用 AGPLv3 构建/分发前请阅读上述许可；若计划闭源或商业分发，请先取得相应商业许可，不要直接使用此构建路线。

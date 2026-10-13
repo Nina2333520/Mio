@@ -1,0 +1,39 @@
+MioNo third-party components and license selections
+
+MioNo project license
+---------------------
+This project is offered under the GNU Affero General Public License, version 3
+(AGPL-3.0-only). See LICENSE.
+
+JUCE
+----
+Component: JUCE Framework 8.0.7
+Source: https://github.com/juce-framework/JUCE/tree/8.0.7
+License selected for this build: AGPLv3 (JUCE also offers a separate commercial
+license). The GitHub Actions workflow fetches this pinned JUCE tag to build.
+
+Steinberg ASIO SDK
+------------------
+Component: Steinberg ASIO SDK 2.3.4, dated 2025-10-15
+Official source archive:
+https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip
+SHA-256: d5ebf0c20dd2c5f43771fd0c1418f4b361bf52434ee670097cfa6b3a335e2eca
+License selected for this build: GNU GPL version 3 (GPL-3.0-only). The SDK's
+license is dual (Steinberg proprietary license or GPLv3); see the SDK's own
+LICENSE.txt and the included Steinberg ASIO Licensing Agreement. This project
+uses the GPLv3 option. See LICENSE-ASIO-GPL-3.0.txt.
+The workflow downloads the SDK from Steinberg, checks the archive hash, and
+uses its headers from a temporary build directory. The SDK is not vendored in
+this repository. The same SDK archive is available from the official URL above.
+
+Build and corresponding source
+------------------------------
+The MioNo source and build workflow are published at:
+https://github.com/Nina2333520/Mio
+The workflow fetches JUCE 8.0.7 and the exact ASIO SDK archive listed above.
+Those upstream sources, together with this repository's Source/, CMakeLists.txt,
+and .github/workflows/build.yml, are the corresponding source/build inputs for
+the generated Windows binary. Retain this notice and both license texts with
+redistributed builds.
+
+No Steinberg ASIO logo or artwork is included in MioNo.
