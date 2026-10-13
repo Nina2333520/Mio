@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主窗口（无边框苹果风）
-//  v6.7：预设/配置优化；空灵层默认开启并使用动漫头像
+//  v6.8：打开软件自动开流；标题栏显示透明底完整人物
 //        可以缩到状态栏（托盘）
 // ============================================================================
 #pragma once
@@ -101,6 +101,19 @@ public:
                         : juce::String (L"已关闭开机自启");
         };
         addAndMakeVisible (tgAuto);
+
+        tgAutoAudio.setButtonText (L"启动时自动开流");
+        tgAutoAudio.setTooltip (L"打开 MioNo 后自动启动已选中的音频设备；设备不可用时会提示失败，可取消勾选关闭");
+        tgAutoAudio.setToggleState (rack.getAutoStartAudio(), juce::dontSendNotification);
+        tgAutoAudio.onClick = [this]
+        {
+            rack.setAutoStartAudio (tgAutoAudio.getToggleState());
+            status = tgAutoAudio.getToggleState()
+                        ? juce::String (L"已开启：打开软件后自动启动音频")
+                        : juce::String (L"已关闭：需要手动点启动");
+            queueAutoSave();
+        };
+        addAndMakeVisible (tgAutoAudio);
 
         tgTray.setButtonText (L"关闭缩到托盘");
         trayOnClose = rack.getTrayOnClose();
@@ -239,6 +252,18 @@ public:
         }
 
         startTimerHz (24);
+
+        // 打开程序后自动启动已保存/当前选中的输入输出设备。延迟到构造完成后再开流，
+        // 并在托盘静默启动时避免弹出模态对话框。
+        if (rack.getAutoStartAudio())
+        {
+            juce::Component::SafePointer<MainComponent> safeThis (this);
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr)
+                    safeThis->startAudio (false);
+            });
+        }
     }
 
     ~MainComponent() override
@@ -375,7 +400,9 @@ private:
         tgBypass.setBounds (r5.removeFromLeft (188));
         r5.removeFromLeft (10);
         tgAuto.setBounds (r5.removeFromLeft (88));
-        r5.removeFromLeft (10);
+        r5.removeFromLeft (8);
+        tgAutoAudio.setBounds (r5.removeFromLeft (150));
+        r5.removeFromLeft (8);
         tgTray.setBounds (r5.removeFromLeft (116));
         btnStart.setBounds (r5.removeFromRight (124));
         r5.removeFromRight (8);
@@ -583,6 +610,31 @@ private:
     }
 
     // ---------------- 动作 ----------------
+    void startAudio (bool showErrorDialog)
+    {
+        if (rack.isRunning()) return;
+
+        updatePreferredDeviceSettings();
+        const double sr = rack.getPreferredSampleRate();
+        const int    bs = rack.getPreferredBlockSize();
+        const auto err = rack.start (cbHost.getText(), cbIn.getText(), cbOut.getText(), sr, bs);
+        if (err.isNotEmpty())
+        {
+            if (showErrorDialog)
+                juce::NativeMessageBox::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon,
+                    "MioNo", juce::String (L"开流失败：\n") + err);
+            btnStart.setButtonText (L"▶ 启动");
+            status = showErrorDialog ? err : juce::String (L"自动启动失败：") + err;
+            title.refresh();
+            return;
+        }
+
+        btnStart.setButtonText (L"■ 停止");
+        status = showErrorDialog ? juce::String (L"已启动") : juce::String (L"音频已自动启动");
+        title.refresh();
+    }
+
     void toggleStart()
     {
         if (rack.isRunning())
@@ -590,26 +642,12 @@ private:
             rack.stop();
             btnStart.setButtonText (L"▶ 启动");
             status = L"已停止";
+            title.refresh();
         }
         else
         {
-            updatePreferredDeviceSettings();
-            const double sr = rack.getPreferredSampleRate();
-            const int    bs = rack.getPreferredBlockSize();
-            const auto err = rack.start (cbHost.getText(), cbIn.getText(), cbOut.getText(), sr, bs);
-            if (err.isNotEmpty())
-            {
-                juce::NativeMessageBox::showMessageBoxAsync (
-                    juce::MessageBoxIconType::WarningIcon,
-                    "MioNo", juce::String (L"开流失败：\n") + err);
-                btnStart.setButtonText (L"▶ 启动");
-                status = err;
-                return;
-            }
-            btnStart.setButtonText (L"■ 停止");
-            status = L"已启动";
+            startAudio (true);
         }
-        title.refresh();
     }
 
     void toggleMaximise()
@@ -691,6 +729,7 @@ private:
         syncGlobalControls();
         trayOnClose = rack.getTrayOnClose();
         tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
+        tgAutoAudio.setToggleState (rack.getAutoStartAudio(), juce::dontSendNotification);
 
         updatePresetButtons();
 
@@ -769,7 +808,7 @@ private:
     juce::Label lblMeterIn, lblMeterOut, txtIn, txtOut;
     juce::ComboBox cbHost, cbIn, cbOut, cbRate, cbBlock;
     juce::TextButton btnRefresh, btnStart, btnTray;
-    juce::ToggleButton tgBypass, tgAuto, tgTray;
+    juce::ToggleButton tgBypass, tgAuto, tgAutoAudio, tgTray;
     juce::Slider slGainIn, slGainOut, slPan;
     LevelBar barIn, barOut;
     Lamp lampInClip  { L"CLIP", AppleColors::Red };

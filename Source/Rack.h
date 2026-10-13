@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 预设 / 机架核心
-//  v6.7：预设快照独立存储、全局控制分离、空灵层默认开启
+//  v6.8：启动时自动开流；标题栏显示透明底完整人物
 // ============================================================================
 #pragma once
 
@@ -348,6 +348,9 @@ public:
     void setTrayOnClose (bool b) { trayOnClose.store (b); }
     bool getTrayOnClose() const  { return trayOnClose.load(); }
 
+    void setAutoStartAudio (bool b) { autoStartAudio.store (b); }
+    bool getAutoStartAudio() const  { return autoStartAudio.load(); }
+
     void rebuild()
     {
         const juce::ScopedLock sl (chainLock);
@@ -413,7 +416,7 @@ public:
     juce::String saveConfig (const juce::File& f) const
     {
         auto* o = new juce::DynamicObject();
-        o->setProperty ("version",   9);
+        o->setProperty ("version",   10);
         o->setProperty ("preset",    presetIndex);
         o->setProperty ("inGain",    (double) inputGainDb.load());
         o->setProperty ("outGain",   (double) outputGainDb.load());
@@ -421,6 +424,7 @@ public:
         o->setProperty ("bypass",    bypassAll.load());
         o->setProperty ("layerOn",   layerOn.load());
         o->setProperty ("trayOnClose", trayOnClose.load());
+        o->setProperty ("autoStartAudio", autoStartAudio.load());
         o->setProperty ("layerGain", (double) layerGainDb.load());
         o->setProperty ("host",      preferredHost.isNotEmpty() ? preferredHost : currentHost);
         o->setProperty ("inDev",     preferredInputName.isNotEmpty() ? preferredInputName : currentInputName);
@@ -499,6 +503,7 @@ public:
         bypassAll.store ((bool) root.getProperty ("bypass", false));
         layerOn.store (newLayerOn);
         trayOnClose.store ((bool) root.getProperty ("trayOnClose", true));
+        autoStartAudio.store ((bool) root.getProperty ("autoStartAudio", true));
         preferredHost = root.getProperty ("host", preferredHost.isNotEmpty() ? preferredHost : currentHost).toString();
         preferredInputName = root.getProperty ("inDev", preferredInputName.isNotEmpty() ? preferredInputName : currentInputName).toString();
         preferredOutputName = root.getProperty ("outDev", preferredOutputName.isNotEmpty() ? preferredOutputName : currentOutputName).toString();
@@ -743,8 +748,9 @@ private:
     std::atomic<float> inRms       { 0.0f };
     std::atomic<bool>  inClip      { false };
     std::atomic<bool>  bypassAll   { false };
-    std::atomic<bool>  trayOnClose { true };   // 关窗口时缩到状态栏
-    std::atomic<bool>  layerOn     { true };
+    std::atomic<bool>  trayOnClose  { true };   // 关窗口时缩到状态栏
+    std::atomic<bool>  autoStartAudio { true }; // 打开软件后自动开流
+    std::atomic<bool>  layerOn      { true };
     std::atomic<float> layerGainDb { -8.0f };
     std::atomic<float> inputGainDb { 0.0f };
     std::atomic<float> outputGainDb{ 0.0f };

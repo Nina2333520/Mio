@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.7：标题栏动漫头像；空灵层默认开启
+//  v6.8：透明底完整人物头像；打开软件可自动开流
 // ============================================================================
 #pragma once
 
@@ -422,10 +422,12 @@ public:
         drawDot (g, x, cy, d, AppleColors::Green);
 
         const float ax = 15.0f + d * 3.0f + gap * 2.0f + 14.0f;
-        const float asz = 30.0f;
-        juce::Rectangle<float> av (ax, cy - asz * 0.5f, asz, asz);
+        const float avatarW = 46.0f, avatarH = 50.0f;
+        juce::Rectangle<float> av (ax, cy - avatarH * 0.5f, avatarW, avatarH);
         if (avatarImage.isValid())
         {
+            // 使用用户提供的透明 PNG 原图，不做圆形裁切；透明区域透出标题栏底色，
+            // 让完整人物从头到脚直接显示出来。
             g.drawImageWithin (avatarImage, (int) av.getX(), (int) av.getY(),
                                (int) av.getWidth(), (int) av.getHeight(),
                                juce::RectanglePlacement::centred);
@@ -433,7 +435,7 @@ public:
         else
         {
             g.setColour (AppleColors::Acc.withAlpha (0.16f));
-            g.fillEllipse (av);
+            g.fillEllipse (av.withSizeKeepingCentre (30.0f, 30.0f));
             g.setColour (AppleColors::Acc);
             g.setFont (AppleLookAndFeel::getBoldFont (13.0f));
             g.drawText ("M", av, juce::Justification::centred, false);
@@ -505,7 +507,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.7";
+    static constexpr const char* VERSION  = "v6.8";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
