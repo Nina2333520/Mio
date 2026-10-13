@@ -339,8 +339,12 @@ public:
     // ---------------- 配置存盘 ----------------
     static juce::File defaultConfigFile()
     {
+        // ⚠️ 这里必须显式包一层 juce::String：
+        //    File::getChildFile() 的参数类型是 StringRef，而 StringRef **没有**
+        //    const wchar_t* 的构造函数 —— 直接传 L"..." 会报
+        //    error C2664: cannot convert argument 1 from 'const wchar_t [13]' to 'juce::StringRef'
         return juce::File::getSpecialLocation (juce::File::currentExecutableFile)
-                   .getParentDirectory().getChildFile (L"MioNo配置.json");
+                   .getParentDirectory().getChildFile (juce::String (L"MioNo配置.json"));
     }
 
     juce::String saveConfig (const juce::File& f) const
