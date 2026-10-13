@@ -69,7 +69,8 @@ inline std::vector<PresetDef> presets()
               mkSlot (FxType::Octave,          {{"mix", -14.0f}}),
               mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 80.0f}}),
           },
-          true, -8.0f,
+          // 空灵层默认【关】—— 想要那层空间感就在「✨ 空灵层」标签页里勾「空灵层开」
+          false, -8.0f,
           {
               mkSlot (FxType::Reverb,          {{"size", 0.88f}, {"damp", 0.30f}, {"wet", -2.0f}}),
               mkSlot (FxType::Delay,           {{"time", 480.0f}, {"feedback", 0.36f}, {"wet", -11.0f}}),
@@ -184,8 +185,13 @@ public:
                 sampleRate = srOk[0];
         }
 
+        // 块大小对齐设备支持值。
+        // ⚠️ blockSize <= 0 表示「自动」——千万别在这里改成 bsOk[0]，
+        //    那样就变成强制用最小块了。JUCE 里 0 是有含义的：
+        //      ASIO  ：bufferSize < 8  → 用驱动的 preferred size
+        //      WASAPI：bufferSize <= 0 → 用 defaultBufferSize
         auto bsOk = dev->getAvailableBufferSizes();
-        if (bsOk.size() > 0)
+        if (bsOk.size() > 0 && blockSize > 0)
         {
             bool found = false;
             for (auto v : bsOk)
@@ -311,10 +317,13 @@ public:
 
     // ---------------- 电平 / 统计 ----------------
     float  getInLevel()   const { return inLevel.load(); }
+    float  getInRms()     const { return inRms.load(); }
     float  getOutPeak()   const { return outPeak.load(); }
     float  getOutRms()    const { return outRms.load(); }
     bool   getClipping()  const { return clipping.load(); }
-    void   clearClipping()      { clipping.store (false); }
+    bool   getInClipping() const { return inClip.load(); }
+    bool   getOutClipping() const { return clipping.load(); }
+    void   clearClipping()      { clipping.store (false); inClip.store (false); }
     double getBlockMs()   const { return blockMs.load(); }
     int    getXruns()     const { return xruns.load(); }
 
@@ -464,13 +473,14 @@ public:
 
         const bool stereoOut = (numOut >= 2 && out[1] != nullptr);
 
-        float peakIn = 0.0f, peakOut = 0.0f, sumSq = 0.0f;
+        float peakIn = 0.0f, peakOut = 0.0f, sumSq = 0.0f, sumSqIn = 0.0f;
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float dry = src[i];
             const float x   = dry * inGain;
             peakIn = juce::jmax (peakIn, std::fabs (x));
+            sumSqIn += x * x;
 
             float y = x;
             if (! bypass)
@@ -506,10 +516,11 @@ public:
         }
 
         inLevel.store (peakIn);
+        inRms  .store (std::sqrt (sumSqIn / (float) numSamples));
         outPeak.store (peakOut);
         outRms .store (std::sqrt (sumSq / (float) numSamples));
-        if (peakOut >= 0.999f)
-            clipping.store (true);
+        if (peakIn >= 0.999f)  inClip.store (true);
+        if (peakOut >= 0.999f) clipping.store (true);
 
         recordTime (t0);
     }
@@ -598,6 +609,8 @@ private:
     int  presetIndex = 1;
     bool running     = false;
 
+    std::atomic<float> inRms       { 0.0f };
+    std::atomic<bool>  inClip      { false };
     std::atomic<bool>  bypassAll   { false };
     std::atomic<bool>  trayOnClose { true };   // 关窗口时缩到状态栏
     std::atomic<bool>  layerOn     { false };

@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 系统托盘（状态栏）图标
-//  v6.2：关掉窗口 / 开机自启时，程序缩到状态栏继续跑
+//  v6.3：关掉窗口 / 开机自启时，程序缩到状态栏继续跑
 // ============================================================================
 #pragma once
 
@@ -97,7 +97,7 @@ private:
         const auto p = juce::Desktop::getInstance().getMousePosition();
 
         juce::PopupMenu m;
-        m.addSectionHeader (L"MioNo v6.2");
+        m.addSectionHeader (L"MioNo v6.3");
         m.addItem (1, L"显示主窗口");
         m.addItem (2, running ? L"■ 停止音频" : L"▶ 启动音频");
         m.addSeparator();

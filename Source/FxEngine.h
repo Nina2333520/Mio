@@ -34,6 +34,25 @@ enum class FxType
     Limiter
 };
 
+// 效果图标（跟 Python 版 MioNo.py 的 FX_ICON 一一对应）
+inline const wchar_t* fxIcon (FxType t)
+{
+    switch (t)
+    {
+        case FxType::SpectralDenoise: return L"\U0001F9F9";   // 🧹
+        case FxType::NoiseGate:       return L"\U0001F6AA";   // 🚪
+        case FxType::Highpass:        return L"\U0001F53A";   // 🔺
+        case FxType::Lowpass:         return L"\U0001F53B";   // 🔻
+        case FxType::PeakEQ:          return L"\U0001F39B";   // 🎛
+        case FxType::Compressor:      return L"\U0001F5DC";   // 🗜
+        case FxType::Reverb:          return L"\U0001F30C";   // 🌌
+        case FxType::Delay:           return L"\U000023F1";   // ⏱
+        case FxType::Octave:          return L"\U00002728";   // ✨
+        case FxType::Limiter:         return L"\U0001F6E1";   // 🛡
+        default:                      return L"•";
+    }
+}
+
 inline const wchar_t* fxName (FxType t)
 {
     switch (t)
@@ -49,6 +68,25 @@ inline const wchar_t* fxName (FxType t)
         case FxType::Octave:          return L"八度叠加";
         case FxType::Limiter:         return L"限幅器";
         default:                      return L"?";
+    }
+}
+
+// 「图标 + 名称」，列表 / 下拉框都用它（跟 Python 版显示一致）
+inline juce::String fxLabel (FxType t)
+{
+    return juce::String (fxIcon (t)) + L" " + juce::String (fxName (t));
+}
+
+// 预设图标（跟 Python 版的 PRESET_ICON 对应）
+inline const wchar_t* presetIcon (int index)
+{
+    switch (index)
+    {
+        case 0:  return L"\U0001F4AC";   // 💬 聊天 / 游戏
+        case 1:  return L"\U0001F3A4";   // 🎤 唱歌
+        case 2:  return L"\U0001F30C";   // 🌌 空灵
+        case 3:  return L"\U0001F4FB";   // 📻 电台厚声
+        default: return L"•";
     }
 }
 

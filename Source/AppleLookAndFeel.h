@@ -55,15 +55,34 @@ public:
         setColour (juce::TooltipWindow::backgroundColourId,   AppleColors::Card);
         setColour (juce::TooltipWindow::textColourId,         AppleColors::Txt);
         setColour (juce::TooltipWindow::outlineColourId,      AppleColors::Line);
+
+        // 标签页（QSS: QTabBar::tab{background:#EDEDF0;border-radius:10px 10px 0 0}）
+        setColour (juce::TabbedComponent::backgroundColourId,   AppleColors::Bg);
+        setColour (juce::TabbedComponent::outlineColourId,      AppleColors::Line);
+        setColour (juce::TabbedButtonBar::tabTextColourId,      AppleColors::Dim);
+        setColour (juce::TabbedButtonBar::frontTextColourId,    juce::Colours::white);
+        setColour (juce::TabbedButtonBar::tabOutlineColourId,   AppleColors::Line);
+        setColour (juce::TabbedButtonBar::frontOutlineColourId, AppleColors::Acc);
     }
 
     // ---- 圆角按钮（QSS: border-radius:9px; padding:6px 13px）----
+    // 注意：被点亮的（toggle 状态）按钮画成蓝色实心 —— 预设按钮 / 标签按钮靠它区分
     void drawButtonBackground (juce::Graphics& g, juce::Button& b,
                                const juce::Colour&,
                                bool over, bool down) override
     {
         auto r = b.getLocalBounds().toFloat().reduced (0.5f);
         const float rad = 9.0f;
+
+        if (b.getToggleState())
+        {
+            g.setColour (down ? AppleColors::Acc.darker (0.15f)
+                              : (over ? juce::Colour (0xFF0A84FF) : AppleColors::Acc));
+            g.fillRoundedRectangle (r, rad);
+            g.setColour (AppleColors::Acc);
+            g.drawRoundedRectangle (r, rad, 1.0f);
+            return;
+        }
 
         juce::Colour fill = AppleColors::Card;
         juce::Colour edge = AppleColors::Line;
@@ -75,6 +94,35 @@ public:
         g.setColour (edge);
         g.drawRoundedRectangle (r, rad, 1.0f);
     }
+
+    // ---- 标签页的标签（QSS: 圆角 10px、选中蓝底白字）----
+    void drawTabButton (juce::TabBarButton& b, juce::Graphics& g,
+                        bool over, bool down) override
+    {
+        auto area = b.getActiveArea().toFloat();
+        if (area.isEmpty()) return;
+
+        const bool front = b.isFrontTab();
+        const float rad = 10.0f;
+
+        juce::Path p;
+        p.addRoundedRectangle (area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                               rad, rad, true, true, false, false);
+
+        g.setColour (front ? (down ? AppleColors::Acc.darker (0.15f)
+                                   : (over ? juce::Colour (0xFF0A84FF) : AppleColors::Acc))
+                           : (over || down ? juce::Colour (0xFFE2E2E7) : juce::Colour (0xFFEDEDF0)));
+        g.fillPath (p);
+
+        g.setColour (front ? juce::Colours::white : AppleColors::Dim);
+        g.setFont (front ? getBoldFont (13.5f) : getAppFont (13.5f));
+        g.drawFittedText (b.getButtonText(), b.getTextArea(),
+                          juce::Justification::centred, 1);
+    }
+
+    // 标签栏底下那条 JUCE 默认的阴影线，我们不要（Python 版靠面板自己的边框）
+    void drawTabAreaBehindFrontButton (juce::TabbedButtonBar&, juce::Graphics&,
+                                       const int, const int) override {}
 
     juce::Font getTextButtonFont (juce::TextButton&, int) override
     {

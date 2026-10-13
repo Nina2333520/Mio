@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.2：电平条 Peak+RMS、效果链可增删上下移、标题栏绿点最大化、可缩到状态栏
+//  v6.3：界面照 Python 版重排（设备卡/预设卡/标签页）、效果图标、可缩到状态栏
 // ============================================================================
 #pragma once
 
@@ -256,6 +256,7 @@ public:
     std::function<void (int)>     onSelect;
     std::function<void (FxType)>  onAdd;
     std::function<void()>         onMoveUp, onMoveDown, onDelete;
+    std::function<void()>         onToggle;      // 点左边小圆点 = 启用 / 旁通
 
     ChainList()
     {
@@ -266,7 +267,7 @@ public:
         addAndMakeVisible (list);
 
         for (int i = 0; i < fxTypeCount(); ++i)
-            kind.addItem (fxName (fxTypeFromIndex (i)), i + 1);
+            kind.addItem (fxLabel (fxTypeFromIndex (i)), i + 1);
         kind.setSelectedId (1, juce::dontSendNotification);
         addAndMakeVisible (kind);
 
@@ -276,10 +277,10 @@ public:
             b.onClick = std::move (fn);
             addAndMakeVisible (b);
         };
-        setup (btnAdd,  L"＋", [this] { if (onAdd) onAdd (fxTypeFromIndex (kind.getSelectedId() - 1)); });
-        setup (btnUp,   L"↑", [this] { if (onMoveUp) onMoveUp(); });
-        setup (btnDown, L"↓", [this] { if (onMoveDown) onMoveDown(); });
-        setup (btnDel,  L"🗑", [this] { if (onDelete) onDelete(); });
+        setup (btnAdd,  L"＋ 添加", [this] { if (onAdd) onAdd (fxTypeFromIndex (kind.getSelectedId() - 1)); });
+        setup (btnUp,   L"↑ 上移", [this] { if (onMoveUp) onMoveUp(); });
+        setup (btnDown, L"↓ 下移", [this] { if (onMoveDown) onMoveDown(); });
+        setup (btnDel,  L"🗑 删除", [this] { if (onDelete) onDelete(); });
     }
 
     void setSlots (const std::vector<FxSlot>* s)
@@ -287,7 +288,9 @@ public:
         slots = s;
         list.updateContent();
         if (slots != nullptr && ! slots->empty())
-            list.selectRow (selectedRow < (int) slots->size() ? selectedRow : 0);
+            list.selectRow (juce::jlimit (0, (int) slots->size() - 1, selectedRow));
+        else
+            list.deselectAllRows();
         repaint();
     }
 
@@ -296,15 +299,23 @@ public:
 
     void resized() override
     {
+        // 跟 Python 版一致：列表在上，下面两行 —— 「类型下拉 + ＋添加」/「↑ ↓ 🗑」
         auto r = getLocalBounds();
-        auto top = r.removeFromTop (28);
-        kind.setBounds (top.removeFromLeft (juce::jmax (80, top.getWidth() - 128)));
-        top.removeFromLeft (4);
-        btnAdd .setBounds (top.removeFromLeft (28));
-        btnUp  .setBounds (top.removeFromLeft (28));
-        btnDown.setBounds (top.removeFromLeft (28));
-        btnDel .setBounds (top.removeFromLeft (28));
-        r.removeFromTop (4);
+        auto bottom = r.removeFromBottom (58);
+        r.removeFromBottom (6);
+
+        auto r1 = bottom.removeFromTop (26);
+        btnAdd.setBounds (r1.removeFromRight (78));
+        r1.removeFromRight (6);
+        kind.setBounds (r1);
+
+        bottom.removeFromTop (6);
+        auto r2 = bottom.removeFromTop (26);
+        const int bw = juce::jmax (56, (r2.getWidth() - 12) / 3);
+        btnUp  .setBounds (r2.removeFromLeft (bw)); r2.removeFromLeft (6);
+        btnDown.setBounds (r2.removeFromLeft (bw)); r2.removeFromLeft (6);
+        btnDel .setBounds (r2.removeFromLeft (bw));
+
         list.setBounds (r.reduced (1));
     }
 
@@ -335,7 +346,7 @@ public:
 
         g.setColour (selected ? AppleColors::Acc : AppleColors::Txt);
         g.setFont (AppleLookAndFeel::getAppFont (13.0f));
-        g.drawText (fxName (s.type), 24, 0, width - 46, height,
+        g.drawText (fxLabel (s.type), 24, 0, width - 46, height,
                     juce::Justification::centredLeft, false);
 
         g.setColour (AppleColors::Dim);
@@ -344,8 +355,18 @@ public:
                     juce::Justification::centredRight, false);
     }
 
-    void listBoxItemClicked (int row, const juce::MouseEvent&) override
+    void listBoxItemClicked (int row, const juce::MouseEvent& e) override
     {
+        // 点最左边那一小块 = 启用 / 旁通（Python 版是列表项自带勾选框）
+        if (slots != nullptr && row >= 0 && row < (int) slots->size() && e.x < 24)
+        {
+            auto& s = (*slots)[(size_t) row];
+            s.on = ! s.on;
+            if (onToggle) onToggle();
+            list.repaint();
+            return;
+        }
+
         selectedRow = row;
         if (onSelect) onSelect (row);
     }
@@ -386,7 +407,7 @@ public:
         g.setColour (AppleColors::Line);
         g.drawLine (0.0f, r.getBottom() - 0.5f, r.getWidth(), r.getBottom() - 0.5f, 1.0f);
 
-        const float d = 12.0f, gap = 7.0f;
+        const float d = 13.0f, gap = 7.0f;
         float x = 15.0f;
         const float cy = r.getHeight() * 0.5f;
         drawDot (g, x, cy, d, AppleColors::Red);        x += d + gap;
@@ -394,7 +415,7 @@ public:
         drawDot (g, x, cy, d, AppleColors::Green);
 
         const float ax = 15.0f + d * 3.0f + gap * 2.0f + 14.0f;
-        const float asz = 26.0f;
+        const float asz = 30.0f;
         juce::Rectangle<float> av (ax, cy - asz * 0.5f, asz, asz);
         g.setColour (AppleColors::Acc.withAlpha (0.16f));
         g.fillEllipse (av);
@@ -418,7 +439,7 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        const float d = 12.0f, gap = 7.0f;
+        const float d = 13.0f, gap = 7.0f;
         float x = 15.0f;
         for (int i = 0; i < 3; ++i)
         {
@@ -468,7 +489,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.2";
+    static constexpr const char* VERSION  = "v6.3";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
@@ -481,6 +502,185 @@ private:
     Lamp lampAsio { L"ASIO", AppleColors::Acc };
     Lamp lampRun  { L"运行", AppleColors::Green };
     juce::Point<int> dragStart, dragWinStart;
+};
+
+// ---------------------------------------------------------------------------
+// 一条效果链的编辑页 —— 主效果链 / 空灵层 各一个，装进标签页里
+// 左边：列表 + 「类型下拉 + ＋添加」+「↑ ↓ 🗑」；右边：参数
+// 空灵层那一页在最上面多一行「空灵层开 + 层音量」
+// ---------------------------------------------------------------------------
+class ChainPage : public juce::Component
+{
+public:
+    ChainPage (Rack& r, bool layerMode) : rack (r), isLayer (layerMode)
+    {
+        addAndMakeVisible (chain);
+        addAndMakeVisible (panel);
+
+        chain.onSelect = [this] (int row)
+        {
+            auto& sl = slots();
+            panel.setFx (row >= 0 && row < (int) sl.size() ? &sl[(size_t) row] : nullptr);
+        };
+
+        chain.onToggle = [this] { rack.rebuild(); if (onChanged) onChanged(); };
+
+        chain.onAdd = [this] (FxType t)
+        {
+            auto& sl = slots();
+            const int at = juce::jlimit (0, (int) sl.size(), chain.getSelectedRow() + 1);
+            FxSlot s;
+            s.type = t;
+            sl.insert (sl.begin() + at, s);
+            rack.rebuild();
+            chain.setSelectedRow (at);
+            chain.setSlots (&sl);
+            panel.setFx (&sl[(size_t) at]);
+            if (onChanged) onChanged();
+        };
+
+        chain.onMoveUp = [this]
+        {
+            auto& sl = slots();
+            const int r = chain.getSelectedRow();
+            if (r > 0 && r < (int) sl.size())
+            {
+                std::swap (sl[(size_t) r], sl[(size_t) (r - 1)]);
+                rack.rebuild();
+                chain.setSelectedRow (r - 1);
+                chain.setSlots (&sl);
+                panel.setFx (&sl[(size_t) (r - 1)]);
+                if (onChanged) onChanged();
+            }
+        };
+
+        chain.onMoveDown = [this]
+        {
+            auto& sl = slots();
+            const int r = chain.getSelectedRow();
+            if (r >= 0 && r + 1 < (int) sl.size())
+            {
+                std::swap (sl[(size_t) r], sl[(size_t) (r + 1)]);
+                rack.rebuild();
+                chain.setSelectedRow (r + 1);
+                chain.setSlots (&sl);
+                panel.setFx (&sl[(size_t) (r + 1)]);
+                if (onChanged) onChanged();
+            }
+        };
+
+        chain.onDelete = [this]
+        {
+            auto& sl = slots();
+            const int r = chain.getSelectedRow();
+            if (r >= 0 && r < (int) sl.size())
+            {
+                sl.erase (sl.begin() + r);
+                rack.rebuild();
+                chain.setSlots (&sl);
+                const int nr = juce::jlimit (0, juce::jmax (0, (int) sl.size() - 1), r);
+                chain.setSelectedRow (nr);
+                panel.setFx (sl.empty() ? nullptr : &sl[(size_t) nr]);
+                if (onChanged) onChanged();
+            }
+        };
+
+        panel.onChanged = [this]
+        {
+            auto& sl = slots();
+            const int r = chain.getSelectedRow();
+            if (r >= 0 && r < (int) sl.size())
+            {
+                panel.commit (sl[(size_t) r]);
+                rack.rebuild();
+            }
+        };
+
+        if (isLayer)
+        {
+            tgLayer.setButtonText (L"空灵层开");
+            tgLayer.setToggleState (rack.getLayerOn(), juce::dontSendNotification);
+            tgLayer.onClick = [this]
+            {
+                rack.setLayerOn (tgLayer.getToggleState());
+                if (onChanged) onChanged();
+            };
+            addAndMakeVisible (tgLayer);
+
+            lblLayerGain.setText (L"层音量", juce::dontSendNotification);
+            lblLayerGain.setFont (AppleLookAndFeel::getAppFont (12.5f));
+            lblLayerGain.setColour (juce::Label::textColourId, AppleColors::Dim);
+            lblLayerGain.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (lblLayerGain);
+
+            slLayerGain.setSliderStyle (juce::Slider::LinearHorizontal);
+            slLayerGain.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
+            slLayerGain.setRange (-40.0, 6.0, 0.1);
+            slLayerGain.setTextValueSuffix (" dB");
+            slLayerGain.setColour (juce::Slider::thumbColourId, AppleColors::Acc);
+            slLayerGain.onValueChange = [this] { rack.setLayerGainDb ((float) slLayerGain.getValue()); };
+            addAndMakeVisible (slLayerGain);
+        }
+
+        refresh();
+    }
+
+    std::function<void()> onChanged;   // 链内容变了 → 外面刷新状态栏 / 标题
+
+    /** 换预设 / 载入配置之后调用：整页重新读一遍。 */
+    void refresh()
+    {
+        auto& sl = slots();
+        chain.setSelectedRow (0);
+        chain.setSlots (&sl);
+        panel.setFx (sl.empty() ? nullptr : &sl[0]);
+
+        if (isLayer)
+        {
+            tgLayer.setToggleState (rack.getLayerOn(), juce::dontSendNotification);
+            slLayerGain.setValue ((double) rack.getLayerGainDb(), juce::dontSendNotification);
+        }
+        repaint();
+    }
+
+    bool isLayerOn() const { return isLayer && tgLayer.getToggleState(); }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (12, 12);
+
+        auto left = r.removeFromLeft (juce::jlimit (180, 260, r.getWidth() / 3));
+        chain.setBounds (left);
+        r.removeFromLeft (11);
+
+        if (isLayer)
+        {
+            auto top = r.removeFromTop (26);
+            tgLayer.setBounds (top.removeFromLeft (104));
+            top.removeFromLeft (10);
+            lblLayerGain.setBounds (top.removeFromLeft (56));
+            slLayerGain.setBounds (top.removeFromLeft (juce::jmax (90, top.getWidth() - 8)));
+            r.removeFromTop (8);
+        }
+
+        panel.setBounds (r);
+    }
+
+private:
+    std::vector<FxSlot>& slots()
+    {
+        return isLayer ? rack.getLayerSlots() : rack.getSlots();
+    }
+
+    Rack& rack;
+    bool  isLayer;
+    ChainList    chain;
+    FxParamPanel panel;
+    juce::ToggleButton tgLayer;
+    juce::Label        lblLayerGain;
+    juce::Slider       slLayerGain;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChainPage)
 };
 
 } // namespace miono

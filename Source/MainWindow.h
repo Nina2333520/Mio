@@ -1,6 +1,7 @@
 // ============================================================================
 //  MioNo - 主窗口（无边框苹果风）
-//  v6.2：可以缩到状态栏（托盘）跑，开机自启后直接缩到状态栏
+//  v6.3：界面照 Python 版 MioNo.py 重排 —— ① 设备卡 / ② 预设卡 / ③ 标签页 / 状态栏
+//        空灵层默认关闭；可以缩到状态栏（托盘）
 // ============================================================================
 #pragma once
 
@@ -12,6 +13,15 @@
 
 namespace miono
 {
+
+// 增益 -> 「-12.3 dB」这种可读文字（Python 版 db_text 的对应物）
+inline juce::String dbText (float gain)
+{
+    if (gain <= 0.00001f) return L"—";
+    const float db = juce::Decibels::gainToDecibels (gain, -100.0f);
+    if (db <= -99.0f) return L"—";
+    return juce::String (db, 1) + L" dB";
+}
 
 class MainComponent : public juce::Component,
                       private juce::Timer
@@ -28,79 +38,45 @@ public:
 
     MainComponent()
     {
-        setSize (1000, 700);
+        setSize (1100, 860);
+
         addAndMakeVisible (title);
-        addAndMakeVisible (chain);
-        addAndMakeVisible (panel);
+        addAndMakeVisible (tabs);
 
-        // ---------------- 设备区 ----------------
-        setupLabel (lblHost,   L"驱动");
-        setupLabel (lblInDev,  L"输入");
-        setupLabel (lblOutDev, L"输出");
-        setupLabel (lblRate,   L"采样率");
-        setupLabel (lblBlock,  L"块大小");
-        setupLabel (lblPreset, L"预设");
+        // ---------------- ① 设备卡 ----------------
+        setupLabel (lblIn,    L"输入");
+        setupLabel (lblOut,   L"输出");
+        setupLabel (lblHost,  L"驱动");
+        setupLabel (lblRate,  L"采样率");
+        setupLabel (lblBlock, L"块大小");
+        setupLabel (lblGainIn,  L"输入增益");
+        setupLabel (lblGainOut, L"输出增益");
+        setupLabel (lblPan,     L"声像");
 
-        for (auto* c : { &cbHost, &cbIn, &cbOut, &cbRate, &cbBlock, &cbPreset })
+        for (auto* c : { &cbHost, &cbIn, &cbOut, &cbRate, &cbBlock })
         {
             c->setJustificationType (juce::Justification::centredLeft);
             addAndMakeVisible (c);
         }
 
         cbHost.onChange = [this] { refreshDevices(); };
-        cbRate.addItem ("48000", 1);
-        cbRate.addItem ("44100", 2);
-        cbRate.setSelectedId (1);
-        cbBlock.addItem ("128",  1);
-        cbBlock.addItem ("256",  2);
-        cbBlock.addItem ("480",  3);
+        cbRate.addItem ("44100", 1);
+        cbRate.addItem ("48000", 2);
+        cbRate.addItem ("96000", 3);
+        cbRate.setSelectedId (2, juce::dontSendNotification);
+        cbBlock.addItem (L"0 = 自动（ASIO 推荐）", 1);
+        cbBlock.addItem ("128",  2);
+        cbBlock.addItem ("256",  3);
         cbBlock.addItem ("512",  4);
-        cbBlock.setSelectedId (2);
+        cbBlock.addItem ("1024", 5);
+        cbBlock.setSelectedId (3, juce::dontSendNotification);
 
-        for (int i = 0; i < (int) presets().size(); ++i)
-            cbPreset.addItem (presets()[(size_t) i].name, i + 1);
-        cbPreset.setSelectedId (2, juce::dontSendNotification);
-        cbPreset.onChange = [this]
-        {
-            rack.applyPreset (cbPreset.getSelectedId() - 1);
-            refreshChain();
-            refreshLayerControls();
-        };
-        addAndMakeVisible (cbPreset);
-
-        // ---------------- 增益 / 声像 ----------------
-        setupLabel (lblGainIn,  L"输入增益");
-        setupLabel (lblGainOut, L"输出增益");
-        setupLabel (lblPan,     L"声像");
-        setupGainSlider (slGainIn,  -24.0, 24.0, 0.0, " dB");
-        setupGainSlider (slGainOut, -24.0, 24.0, 0.0, " dB");
-        setupGainSlider (slPan,      -1.0,  1.0, 0.0, "");
-
-        slGainIn .onValueChange = [this] { rack.setInputGainDb  ((float) slGainIn .getValue()); };
-        slGainOut.onValueChange = [this] { rack.setOutputGainDb ((float) slGainOut.getValue()); };
-        slPan    .onValueChange = [this] { rack.setPan          ((float) slPan    .getValue()); };
-
-        // ---------------- 按钮 ----------------
+        setupButton (btnRefresh, L"🔄 刷新", [this] { refreshAll(); });
         setupButton (btnStart,   L"▶ 启动", [this] { toggleStart(); });
-        setupButton (btnRefresh, L"刷新",   [this] { refreshAll(); });
-        setupButton (btnBypass,  L"旁通",   [this]
-        {
-            rack.setBypass (! rack.getBypass());
-            btnBypass.setButtonText (rack.getBypass() ? L"旁通·开" : L"旁通");
-        });
-        setupButton (btnFxOn, L"启用/旁通", [this]
-        {
-            auto& slots = activeSlots();
-            const int r = chain.getSelectedRow();
-            if (r >= 0 && r < (int) slots.size())
-            {
-                slots[(size_t) r].on = ! slots[(size_t) r].on;
-                rack.rebuild();
-                refreshChain();
-            }
-        });
-        setupButton (btnSave, L"💾 保存", [this] { saveConfig(); });
-        setupButton (btnLoad, L"📂 载入", [this] { loadConfig(); });
+
+        tgBypass.setButtonText (L"旁通全部效果（对比原声）");
+        tgBypass.onClick = [this] { rack.setBypass (tgBypass.getToggleState()); };
+        addAndMakeVisible (tgBypass);
 
         tgAuto.setButtonText (L"开机自启");
         tgAuto.setToggleState (Rack::getAutoStart(), juce::dontSendNotification);
@@ -113,7 +89,6 @@ public:
         };
         addAndMakeVisible (tgAuto);
 
-        // ---------------- 状态栏（托盘） ----------------
         tgTray.setButtonText (L"关闭缩到托盘");
         trayOnClose = rack.getTrayOnClose();
         tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
@@ -128,118 +103,94 @@ public:
 
         setupButton (btnTray, L"⇩ 缩到托盘", [this] { if (onHideToTray != nullptr) onHideToTray(); });
 
-        // ---------------- 两条链的切换 ----------------
-        setupButton (btnTabMain,  L"🎤 主效果链", [this] { setEditingLayer (false); });
-        setupButton (btnTabLayer, L"✨ 空灵层",   [this] { setEditingLayer (true); });
-        btnTabMain .setClickingTogglesState (true);
-        btnTabLayer.setClickingTogglesState (true);
-        btnTabMain .setRadioGroupId (1001, juce::dontSendNotification);
-        btnTabLayer.setRadioGroupId (1001, juce::dontSendNotification);
-        btnTabMain .setToggleState (true, juce::dontSendNotification);
+        setupGainSlider (slGainIn,  -24.0, 24.0, 0.0, " dB");
+        setupGainSlider (slGainOut, -24.0, 24.0, 0.0, " dB");
+        setupGainSlider (slPan,      -1.0,  1.0, 0.0, "");
 
-        tgLayer.setButtonText (L"空灵层开");
-        tgLayer.onClick = [this] { rack.setLayerOn (tgLayer.getToggleState()); };
-        addAndMakeVisible (tgLayer);
+        slGainIn .onValueChange = [this] { rack.setInputGainDb  ((float) slGainIn .getValue()); };
+        slGainOut.onValueChange = [this] { rack.setOutputGainDb ((float) slGainOut.getValue()); };
+        slPan    .onValueChange = [this]
+        {
+            rack.setPan ((float) slPan.getValue());
+            const int v = (int) std::round (slPan.getValue() * 100.0);
+            const int av = (v < 0 ? -v : v);
+            lblPanVal.setText (av < 3 ? juce::String (L"居中")
+                                                : (v < 0 ? juce::String (L"左 ") + juce::String (-v) + L"%"
+                                                         : juce::String (L"右 ") + juce::String (v) + L"%"),
+                               juce::dontSendNotification);
+        };
 
-        setupLabel (lblLayerGain, L"层音量");
-        setupGainSlider (slLayerGain, -40.0, 6.0, -8.0, " dB");
-        slLayerGain.onValueChange = [this] { rack.setLayerGainDb ((float) slLayerGain.getValue()); };
+        lblPanVal.setText (L"居中", juce::dontSendNotification);
+        lblPanVal.setFont (AppleLookAndFeel::getAppFont (12.5f));
+        lblPanVal.setColour (juce::Label::textColourId, AppleColors::Dim);
+        lblPanVal.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (lblPanVal);
 
-        // ---------------- 电平 ----------------
-        addAndMakeVisible (barIn);
-        addAndMakeVisible (barOut);
-        addAndMakeVisible (lampClip);
-        lblIn.setText (L"输入", juce::dontSendNotification);
-        lblOut.setText (L"输出", juce::dontSendNotification);
-        for (auto* l : { &lblIn, &lblOut, &lblStat })
+        // 电平两行：输入 / 输出，各带一条 Peak+RMS 和 CLIP 灯 + 数字
+        for (auto* l : { &lblMeterIn, &lblMeterOut })
         {
             l->setFont (AppleLookAndFeel::getAppFont (12.0f));
             l->setColour (juce::Label::textColourId, AppleColors::Dim);
+            l->setJustificationType (juce::Justification::centredLeft);
             addAndMakeVisible (l);
         }
-        lblStat.setColour (juce::Label::textColourId, AppleColors::Dim);
+        lblMeterIn .setText (L"输入", juce::dontSendNotification);
+        lblMeterOut.setText (L"输出", juce::dontSendNotification);
 
-        // ---------------- 联动 ----------------
+        for (auto* t : { &txtIn, &txtOut })
+        {
+            t->setFont (AppleLookAndFeel::getAppFont (12.0f));
+            t->setColour (juce::Label::textColourId, AppleColors::Dim);
+            t->setJustificationType (juce::Justification::centredLeft);
+            t->setText (L"—", juce::dontSendNotification);
+            addAndMakeVisible (t);
+        }
+
+        addAndMakeVisible (barIn);
+        addAndMakeVisible (barOut);
+        addAndMakeVisible (lampInClip);
+        addAndMakeVisible (lampOutClip);
+
+        // ---------------- ② 预设 / 配置 ----------------
+        const auto ps = presets();
+        for (int i = 0; i < (int) ps.size(); ++i)
+        {
+            auto* b = presetButtons.add (new juce::TextButton());
+            b->setButtonText (juce::String (presetIcon (i)) + L" " + ps[(size_t) i].name);
+            b->setClickingTogglesState (true);
+            b->setRadioGroupId (2001, juce::dontSendNotification);
+            b->onClick = [this, i] { applyPreset (i); };
+            addAndMakeVisible (b);
+        }
+        setupButton (btnSave, L"💾 保存配置", [this] { saveConfig(); });
+        setupButton (btnLoad, L"📂 载入配置", [this] { loadConfig(); });
+
+        // ---------------- ③ 标签页（主效果链 / 空灵层）----------------
+        pageMain.onChanged  = [this] { title.refresh(); };
+        pageLayer.onChanged = [this] { title.refresh(); };
+
+        tabs.setTabBarDepth (34);
+        tabs.setOutline (1);
+        tabs.setColour (juce::TabbedComponent::backgroundColourId, AppleColors::Bg);
+        tabs.setColour (juce::TabbedComponent::outlineColourId,    AppleColors::Line);
+        tabs.addTab (L"🎤 主效果链", AppleColors::Card, &pageMain,  false);
+        tabs.addTab (L"✨ 空灵层",   AppleColors::Card, &pageLayer, false);
+
+        // ---------------- 状态栏 ----------------
+        lblStat.setFont (AppleLookAndFeel::getAppFont (12.0f));
+        lblStat.setColour (juce::Label::textColourId, AppleColors::Dim);
+        lblStat.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (lblStat);
+
+        // ---------------- 标题栏按钮 ----------------
         title.onClose    = [this] { if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->closeButtonPressed(); };
         title.onMinimise = [this] { if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setMinimised (true); };
         title.onMaximise = [this] { toggleMaximise(); };
 
-        chain.onSelect = [this] (int row)
-        {
-            auto& slots = activeSlots();
-            if (row >= 0 && row < (int) slots.size())
-                panel.setFx (&slots[(size_t) row]);
-            else
-                panel.setFx (nullptr);
-        };
+        // 进来就按当前预设摆好（不弹提示）
+        applyPreset (rack.getPresetIndex());
+        status.clear();
 
-        chain.onAdd = [this] (FxType t)
-        {
-            auto& slots = activeSlots();
-            const int at = juce::jlimit (0, (int) slots.size(), chain.getSelectedRow() + 1);
-            FxSlot s;
-            s.type = t;
-            slots.insert (slots.begin() + at, s);
-            rack.rebuild();
-            refreshChain();
-            chain.setSelectedRow (at);
-            panel.setFx (&activeSlots()[(size_t) at]);
-        };
-
-        chain.onMoveUp = [this]
-        {
-            auto& slots = activeSlots();
-            const int r = chain.getSelectedRow();
-            if (r > 0 && r < (int) slots.size())
-            {
-                std::swap (slots[(size_t) r], slots[(size_t) (r - 1)]);
-                rack.rebuild();
-                refreshChain();
-                chain.setSelectedRow (r - 1);
-                panel.setFx (&activeSlots()[(size_t) (r - 1)]);
-            }
-        };
-
-        chain.onMoveDown = [this]
-        {
-            auto& slots = activeSlots();
-            const int r = chain.getSelectedRow();
-            if (r >= 0 && r + 1 < (int) slots.size())
-            {
-                std::swap (slots[(size_t) r], slots[(size_t) (r + 1)]);
-                rack.rebuild();
-                refreshChain();
-                chain.setSelectedRow (r + 1);
-                panel.setFx (&activeSlots()[(size_t) (r + 1)]);
-            }
-        };
-
-        chain.onDelete = [this]
-        {
-            auto& slots = activeSlots();
-            const int r = chain.getSelectedRow();
-            if (r >= 0 && r < (int) slots.size())
-            {
-                slots.erase (slots.begin() + r);
-                rack.rebuild();
-                refreshChain();
-                panel.setFx (nullptr);
-            }
-        };
-
-        panel.onChanged = [this]
-        {
-            auto& slots = activeSlots();
-            const int r = chain.getSelectedRow();
-            if (r >= 0 && r < (int) slots.size())
-            {
-                panel.commit (slots[(size_t) r]);
-                rack.rebuild();
-            }
-        };
-
-        refreshAll();
-        refreshLayerControls();
         startTimerHz (24);
     }
 
@@ -252,122 +203,46 @@ public:
         auto card = [&] (juce::Rectangle<int> r)
         {
             g.setColour (AppleColors::Card);
-            g.fillRoundedRectangle (r.toFloat(), 12.0f);
+            g.fillRoundedRectangle (r.toFloat(), 14.0f);
             g.setColour (AppleColors::Line.withAlpha (0.85f));
-            g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 12.0f, 1.0f);
+            g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 14.0f, 1.0f);
         };
 
         card (devArea);
-        card (chainArea);
-        card (paramArea);
-        card (statArea);
+        card (presetArea);
 
         g.setColour (AppleColors::Dim);
         g.setFont (AppleLookAndFeel::getBoldFont (12.5f));
-        g.drawText (L"音频设备", devArea.getX() + 14, devArea.getY() + 8, 200, 18,
+        g.drawText (L"① 设备", devArea.getX() + 14, devArea.getY() + 7, 200, 18,
                     juce::Justification::centredLeft, false);
-        g.drawText (editingLayer ? L"✨ 空灵层（并行）" : L"🎤 主效果链",
-                    chainArea.getX() + 14, chainArea.getY() + 8, 260, 18,
-                    juce::Justification::centredLeft, false);
-        g.drawText (L"参数", paramArea.getX() + 14, paramArea.getY() + 8, 200, 18,
-                    juce::Justification::centredLeft, false);
-        g.drawText (L"电平 / 状态", statArea.getX() + 14, statArea.getY() + 8, 200, 18,
+        g.drawText (L"② 预设 / 配置", presetArea.getX() + 14, presetArea.getY() + 7, 200, 18,
                     juce::Justification::centredLeft, false);
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
-        title.setBounds (r.removeFromTop (48));
-        r.reduce (12, 8);
+        title.setBounds (r.removeFromTop (52));
+        r.reduce (14, 12);
 
-        // ---------------- ① 设备卡片 ----------------
-        auto dev = r.removeFromTop (132);
+        // ① 设备卡
+        auto dev = r.removeFromTop (250);
         devArea = dev;
-        auto d = dev.reduced (12, 26);
-        const int rowH = 24, gap = 6, labelW = 58;
+        layoutDeviceCard (dev);
+        r.removeFromTop (11);
 
-        auto row1 = d.removeFromTop (rowH); d.removeFromTop (gap);
-        auto row2 = d.removeFromTop (rowH); d.removeFromTop (gap);
-        auto row3 = d.removeFromTop (rowH); d.removeFromTop (gap);
-        auto row4 = d.removeFromTop (rowH);
+        // ② 预设卡
+        auto pre = r.removeFromTop (60);
+        presetArea = pre;
+        layoutPresetCard (pre);
+        r.removeFromTop (11);
 
-        lblHost.setBounds (row1.removeFromLeft (labelW));
-        cbHost.setBounds (row1.removeFromLeft (juce::jmax (90, row1.getWidth() / 3 - 30)));
-        row1.removeFromLeft (10);
-        lblInDev.setBounds (row1.removeFromLeft (labelW));
-        cbIn.setBounds (row1.removeFromLeft (juce::jmax (100, row1.getWidth() / 2 - 40)));
-        row1.removeFromLeft (10);
-        lblOutDev.setBounds (row1.removeFromLeft (labelW));
-        cbOut.setBounds (row1);
+        // 底部状态栏
+        lblStat.setBounds (r.removeFromBottom (22).withTrimmedLeft (4));
+        r.removeFromBottom (8);
 
-        lblRate.setBounds (row2.removeFromLeft (labelW));
-        cbRate.setBounds (row2.removeFromLeft (84));
-        row2.removeFromLeft (8);
-        lblBlock.setBounds (row2.removeFromLeft (labelW));
-        cbBlock.setBounds (row2.removeFromLeft (84));
-        row2.removeFromLeft (8);
-        lblPreset.setBounds (row2.removeFromLeft (labelW));
-        cbPreset.setBounds (row2.removeFromLeft (juce::jmax (90, row2.getWidth() - 160)));
-        row2.removeFromLeft (8);
-        btnSave.setBounds (row2.removeFromLeft (76)); row2.removeFromLeft (6);
-        btnLoad.setBounds (row2.removeFromLeft (76));
-
-        btnStart.setBounds   (row3.removeFromLeft (84));  row3.removeFromLeft (6);
-        btnRefresh.setBounds (row3.removeFromLeft (72));  row3.removeFromLeft (6);
-        btnBypass.setBounds  (row3.removeFromLeft (84));  row3.removeFromLeft (6);
-        btnFxOn.setBounds    (row3.removeFromLeft (96));  row3.removeFromLeft (12);
-        tgAuto.setBounds     (row3.removeFromLeft (100)); row3.removeFromLeft (10);
-        btnTray.setBounds    (row3.removeFromLeft (104)); row3.removeFromLeft (10);
-        tgTray.setBounds     (row3.removeFromLeft (118));
-
-        lblGainIn.setBounds (row4.removeFromLeft (labelW));
-        slGainIn.setBounds (row4.removeFromLeft (juce::jmax (100, row4.getWidth() / 3 - 50)));
-        row4.removeFromLeft (10);
-        lblGainOut.setBounds (row4.removeFromLeft (labelW));
-        slGainOut.setBounds (row4.removeFromLeft (juce::jmax (100, row4.getWidth() / 2 - 50)));
-        row4.removeFromLeft (10);
-        lblPan.setBounds (row4.removeFromLeft (labelW));
-        slPan.setBounds (row4);
-
-        // ---------------- ② 效果链 + 参数 ----------------
-        r.removeFromTop (8);
-        auto mid = r.removeFromTop (juce::jmax (200, r.getHeight() - 104));
-        auto left = mid.removeFromLeft (int (mid.getWidth() * 0.46));
-        chainArea = left;
-
-        auto l = left.reduced (12, 28);
-        auto tabRow = l.removeFromTop (26);
-        btnTabMain.setBounds (tabRow.removeFromLeft (104)); tabRow.removeFromLeft (6);
-        btnTabLayer.setBounds (tabRow.removeFromLeft (104));
-        l.removeFromTop (6);
-        chain.setBounds (l);
-
-        mid.removeFromLeft (8);
-        paramArea = mid;
-        auto pr = mid.reduced (12, 28);
-        auto layerRow = pr.removeFromTop (24);
-        tgLayer.setBounds (layerRow.removeFromLeft (96));
-        layerRow.removeFromLeft (8);
-        lblLayerGain.setBounds (layerRow.removeFromLeft (58));
-        slLayerGain.setBounds (layerRow.removeFromLeft (juce::jmax (80, layerRow.getWidth() - 8)));
-        pr.removeFromTop (6);
-        panel.setBounds (pr);
-
-        // ---------------- ③ 电平 ----------------
-        r.removeFromTop (8);
-        statArea = r.removeFromTop (96);
-        auto s = statArea.reduced (12, 28);
-        auto m1 = s.removeFromTop (24);
-        lblIn.setBounds (m1.removeFromLeft (40));
-        barIn.setBounds (m1.removeFromLeft (juce::jmax (120, m1.getWidth() / 2 - 60)));
-        m1.removeFromLeft (14);
-        lblOut.setBounds (m1.removeFromLeft (40));
-        barOut.setBounds (m1.removeFromLeft (juce::jmax (120, m1.getWidth() - 90)));
-        m1.removeFromLeft (8);
-        lampClip.setBounds (m1);
-        s.removeFromTop (6);
-        lblStat.setBounds (s.removeFromTop (22));
+        // ③ 剩下的全给标签页
+        tabs.setBounds (r);
     }
 
 private:
@@ -391,7 +266,7 @@ private:
     void setupGainSlider (juce::Slider& s, double lo, double hi, double def, const juce::String& suffix)
     {
         s.setSliderStyle (juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 60, 20);
+        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 62, 20);
         s.setRange (lo, hi, 0.1);
         s.setTextValueSuffix (suffix);
         s.setValue (def, juce::dontSendNotification);
@@ -399,19 +274,99 @@ private:
         addAndMakeVisible (s);
     }
 
-    std::vector<FxSlot>& activeSlots()
+    // ---------------- 布局：① 设备卡 ----------------
+    void layoutDeviceCard (juce::Rectangle<int> dev)
     {
-        return editingLayer ? rack.getLayerSlots() : rack.getSlots();
+        auto d = dev.reduced (14, 9);
+        d.removeFromTop (17);            // 卡片标题占位
+        const int rowH = 24, gap = 6;
+
+        auto r1 = d.removeFromTop (rowH); d.removeFromTop (gap);
+        auto r2 = d.removeFromTop (rowH); d.removeFromTop (gap);
+        auto r3 = d.removeFromTop (rowH); d.removeFromTop (gap);
+        auto r4 = d.removeFromTop (rowH); d.removeFromTop (gap);
+        auto r5 = d.removeFromTop (rowH); d.removeFromTop (gap + 3);
+        auto r6 = d.removeFromTop (22);   d.removeFromTop (gap);
+        auto r7 = d.removeFromTop (22);
+
+        // 输入 + 🔄 刷新
+        lblIn.setBounds (r1.removeFromLeft (40));
+        btnRefresh.setBounds (r1.removeFromRight (84));
+        r1.removeFromRight (6);
+        cbIn.setBounds (r1);
+
+        // 输出
+        lblOut.setBounds (r2.removeFromLeft (40));
+        cbOut.setBounds (r2);
+
+        // 驱动 / 采样率 / 块大小
+        lblHost.setBounds (r3.removeFromLeft (40));
+        cbHost.setBounds (r3.removeFromLeft (juce::jmax (90, juce::jmin (200, r3.getWidth() / 4))));
+        r3.removeFromLeft (12);
+        lblRate.setBounds (r3.removeFromLeft (52));
+        cbRate.setBounds (r3.removeFromLeft (92));
+        r3.removeFromLeft (12);
+        lblBlock.setBounds (r3.removeFromLeft (52));
+        cbBlock.setBounds (r3.removeFromLeft (170));
+
+        // 输入增益 / 输出增益 / 声像
+        lblGainIn.setBounds (r4.removeFromLeft (60));
+        slGainIn.setBounds (r4.removeFromLeft (juce::jmax (120, r4.getWidth() / 3 - 40)));
+        r4.removeFromLeft (12);
+        lblGainOut.setBounds (r4.removeFromLeft (60));
+        slGainOut.setBounds (r4.removeFromLeft (juce::jmax (120, r4.getWidth() / 2 - 40)));
+        r4.removeFromLeft (12);
+        lblPan.setBounds (r4.removeFromLeft (40));
+        lblPanVal.setBounds (r4.removeFromRight (58));
+        slPan.setBounds (r4);
+
+        // 勾选框 + 按钮
+        tgBypass.setBounds (r5.removeFromLeft (188));
+        r5.removeFromLeft (10);
+        tgAuto.setBounds (r5.removeFromLeft (88));
+        r5.removeFromLeft (10);
+        tgTray.setBounds (r5.removeFromLeft (116));
+        btnStart.setBounds (r5.removeFromRight (124));
+        r5.removeFromRight (8);
+        btnTray.setBounds (r5.removeFromRight (104));
+
+        // 两行电平
+        auto meterRow = [] (juce::Rectangle<int> row, juce::Label& lb, LevelBar& bar,
+                            Lamp& lamp, juce::Label& txt)
+        {
+            lb.setBounds (row.removeFromLeft (34));
+            lamp.setBounds (row.removeFromRight (54));
+            row.removeFromRight (6);
+            txt.setBounds (row.removeFromRight (190));
+            row.removeFromRight (6);
+            bar.setBounds (row);
+        };
+        meterRow (r6, lblMeterIn,  barIn,  lampInClip,  txtIn);
+        meterRow (r7, lblMeterOut, barOut, lampOutClip, txtOut);
     }
 
-    void setEditingLayer (bool layer)
+    // ---------------- 布局：② 预设卡 ----------------
+    void layoutPresetCard (juce::Rectangle<int> pre)
     {
-        editingLayer = layer;
-        btnTabMain .setToggleState (! layer, juce::dontSendNotification);
-        btnTabLayer.setToggleState (layer, juce::dontSendNotification);
-        chain.setSelectedRow (0);
-        refreshChain();
-        repaint();
+        auto p = pre.reduced (14, 7);
+        p.removeFromTop (16);
+
+        auto row = p.removeFromTop (26);
+
+        const int rightW = 110 + 7 + 110;      // 💾 保存 + 间距 + 📂 载入
+        auto left = row.removeFromLeft (juce::jmax (240, row.getWidth() - rightW - 12));
+        const int bw = juce::jlimit (100, 190, (left.getWidth() - 7 * (presetButtons.size() - 1))
+                                                   / juce::jmax (1, presetButtons.size()));
+        for (auto* b : presetButtons)
+        {
+            b->setBounds (left.removeFromLeft (bw));
+            left.removeFromLeft (7);
+        }
+
+        row.removeFromLeft (12);
+        btnSave.setBounds (row.removeFromLeft (110));
+        row.removeFromLeft (7);
+        btnLoad.setBounds (row.removeFromLeft (110));
     }
 
     // ---------------- 刷新 ----------------
@@ -429,8 +384,6 @@ private:
         cbHost.setSelectedId (asioId > 0 ? asioId : (hosts.isEmpty() ? 0 : 1),
                               juce::dontSendNotification);
         refreshDevices();
-        refreshChain();
-        refreshLayerControls();
     }
 
     void refreshDevices()
@@ -452,22 +405,18 @@ private:
             cbOut.setSelectedId (1, juce::dontSendNotification);
     }
 
-    void refreshChain()
+    // ---------------- 预设 ----------------
+    void applyPreset (int idx)
     {
-        chain.setSlots (&activeSlots());
-        const int r = chain.getSelectedRow();
-        auto& slots = activeSlots();
-        if (r >= 0 && r < (int) slots.size())
-            panel.setFx (&slots[(size_t) r]);
-        else
-            panel.setFx (nullptr);
-        repaint();
-    }
+        rack.applyPreset (idx);
+        for (int i = 0; i < presetButtons.size(); ++i)
+            presetButtons[i]->setToggleState (i == idx, juce::dontSendNotification);
+        pageMain.refresh();
+        pageLayer.refresh();
 
-    void refreshLayerControls()
-    {
-        tgLayer.setToggleState (rack.getLayerOn(), juce::dontSendNotification);
-        slLayerGain.setValue ((double) rack.getLayerGainDb(), juce::dontSendNotification);
+        const auto ps = presets();
+        status = juce::String (L"已套用预设：") + juce::String (presetIcon (idx)) + L" "
+               + (idx >= 0 && idx < (int) ps.size() ? ps[(size_t) idx].name : juce::String());
     }
 
     // ---------------- 动作 ----------------
@@ -477,6 +426,7 @@ private:
         {
             rack.stop();
             btnStart.setButtonText (L"▶ 启动");
+            status = L"已停止";
         }
         else
         {
@@ -489,9 +439,11 @@ private:
                     juce::MessageBoxIconType::WarningIcon,
                     "MioNo", juce::String (L"开流失败：\n") + err);
                 btnStart.setButtonText (L"▶ 启动");
+                status = err;
                 return;
             }
             btnStart.setButtonText (L"■ 停止");
+            status = L"已启动";
         }
         title.refresh();
     }
@@ -551,24 +503,38 @@ private:
 
     void afterConfigLoaded()
     {
-        cbPreset.setSelectedId (rack.getPresetIndex() + 1, juce::dontSendNotification);
         slGainIn .setValue ((double) rack.getInputGainDb(),  juce::dontSendNotification);
         slGainOut.setValue ((double) rack.getOutputGainDb(), juce::dontSendNotification);
         slPan    .setValue ((double) rack.getPan(),          juce::dontSendNotification);
-        btnBypass.setButtonText (rack.getBypass() ? L"旁通·开" : L"旁通");
+        tgBypass .setToggleState (rack.getBypass(), juce::dontSendNotification);
         trayOnClose = rack.getTrayOnClose();
         tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
-        refreshChain();
-        refreshLayerControls();
+
+        const int pi = rack.getPresetIndex();
+        for (int i = 0; i < presetButtons.size(); ++i)
+            presetButtons[i]->setToggleState (i == pi, juce::dontSendNotification);
+
+        pageMain.refresh();
+        pageLayer.refresh();
     }
 
     void timerCallback() override
     {
-        barIn .setLevels (rack.getInLevel(), rack.getInLevel() * 0.7f);
-        barOut.setLevels (rack.getOutPeak(), rack.getOutRms());
-        barIn .setClip (rack.getClipping());
-        barOut.setClip (rack.getClipping());
-        lampClip.setOn (rack.getClipping());
+        const bool running = rack.isRunning();
+
+        barIn .setLevels (rack.getInLevel(),  rack.getInRms());
+        barOut.setLevels (rack.getOutPeak(),  rack.getOutRms());
+        barIn .setClip (rack.getInClipping());
+        barOut.setClip (rack.getOutClipping());
+        lampInClip .setOn (rack.getInClipping());
+        lampOutClip.setOn (rack.getOutClipping());
+
+        txtIn .setText (juce::String (L"峰 ") + dbText (rack.getInLevel())
+                        + juce::String (L" / 均 ") + dbText (rack.getInRms()),
+                        juce::dontSendNotification);
+        txtOut.setText (juce::String (L"峰 ") + dbText (rack.getOutPeak())
+                        + juce::String (L" / 均 ") + dbText (rack.getOutRms()),
+                        juce::dontSendNotification);
 
         // CLIP 灯亮 2 秒后自动清掉
         if (rack.getClipping())
@@ -586,25 +552,26 @@ private:
             s = status;
             if (++statusTicks > 120) { status.clear(); statusTicks = 0; }   // 提示 5 秒后消失
         }
-        else if (rack.isRunning())
+        else if (running)
             s = rack.deviceInfo()
-              + juce::String (L"   占用 ") + juce::String ((double) rack.getLoadPercent(), 1) + L"%"
-              + juce::String (L"   单块 ") + juce::String (rack.getBlockMs(), 2) + L" ms"
-              + juce::String (L"   丢帧 ") + juce::String (rack.getXruns());
+              + juce::String (L"　占用 ") + juce::String ((double) rack.getLoadPercent(), 1) + L"%"
+              + juce::String (L"　单块 ") + juce::String (rack.getBlockMs(), 2) + L" ms"
+              + juce::String (L"　丢帧 ") + juce::String (rack.getXruns());
         else
             s = L"未开流 · 选好输入/输出后点「▶ 启动」";
 
         if (lblStat.getText() != s)
             lblStat.setText (s, juce::dontSendNotification);
 
+        btnStart.setButtonText (running ? L"■ 停止" : L"▶ 启动");
+
         // 状态栏（托盘）图标的悬停提示跟着状态走
         if (onTrayUpdate != nullptr)
         {
-            const bool run = rack.isRunning();
-            const juce::String tip = run
+            const juce::String tip = running
                 ? (juce::String (L"MioNo · 运行中  ") + juce::String ((double) rack.getLoadPercent(), 0) + L"%")
                 : juce::String (L"MioNo · 未开流");
-            onTrayUpdate (tip, run);
+            onTrayUpdate (tip, running);
         }
 
         title.refresh();
@@ -612,27 +579,35 @@ private:
 
     Rack rack;
     TitleBar title { rack };
-    ChainList chain;
-    FxParamPanel panel;
 
-    juce::Label lblHost, lblInDev, lblOutDev, lblRate, lblBlock, lblPreset;
-    juce::Label lblGainIn, lblGainOut, lblPan, lblLayerGain;
-    juce::ComboBox cbHost, cbIn, cbOut, cbRate, cbBlock, cbPreset;
-    juce::TextButton btnStart, btnRefresh, btnBypass, btnFxOn, btnSave, btnLoad;
-    juce::TextButton btnTabMain, btnTabLayer, btnTray;
-    juce::ToggleButton tgAuto, tgLayer, tgTray;
-    juce::Slider slGainIn, slGainOut, slPan, slLayerGain;
-
-    juce::Label lblIn, lblOut, lblStat;
+    // ① 设备
+    juce::Label lblIn, lblOut, lblHost, lblRate, lblBlock;
+    juce::Label lblGainIn, lblGainOut, lblPan, lblPanVal;
+    juce::Label lblMeterIn, lblMeterOut, txtIn, txtOut;
+    juce::ComboBox cbHost, cbIn, cbOut, cbRate, cbBlock;
+    juce::TextButton btnRefresh, btnStart, btnTray;
+    juce::ToggleButton tgBypass, tgAuto, tgTray;
+    juce::Slider slGainIn, slGainOut, slPan;
     LevelBar barIn, barOut;
-    Lamp lampClip { L"CLIP", AppleColors::Red };
+    Lamp lampInClip  { L"CLIP", AppleColors::Red };
+    Lamp lampOutClip { L"CLIP", AppleColors::Red };
 
-    juce::Rectangle<int> devArea, chainArea, paramArea, statArea;
+    // ② 预设 / 配置
+    juce::OwnedArray<juce::TextButton> presetButtons;
+    juce::TextButton btnSave, btnLoad;
 
-    bool editingLayer = false;
-    bool maximised    = false;
-    int  clipTicks    = 0;
-    int  statusTicks  = 0;
+    // ③ 标签页（声明顺序很重要：tabs 要在两个页面之后销毁）
+    ChainPage pageMain  { rack, false };
+    ChainPage pageLayer { rack, true };
+    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+
+    juce::Label lblStat;
+
+    juce::Rectangle<int> devArea, presetArea;
+
+    bool maximised   = false;
+    int  clipTicks   = 0;
+    int  statusTicks = 0;
     juce::Rectangle<int> restoreBounds;
     juce::String status;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -657,8 +632,8 @@ public:
         main = new MainComponent();
         setContentOwned (main, true);
         setResizable (true, false);
-        setResizeLimits (820, 620, 10000, 10000);
-        centreWithSize (1000, 700);
+        setResizeLimits (920, 700, 10000, 10000);
+        centreWithSize (1100, 860);
 
         // ---- 状态栏（托盘）图标 ----
         // 建出来就在状态栏上了；右键出菜单，左键把窗口叫回来。

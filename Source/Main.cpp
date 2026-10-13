@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 应用入口
-//  v6.2：开机自启（--tray）时直接缩到状态栏；只允许一个实例
+//  v6.3：开机自启（--tray）时直接缩到状态栏；只允许一个实例
 // ============================================================================
 #include <JuceHeader.h>
 #include "MainWindow.h"
@@ -12,7 +12,7 @@ public:
     MioNoApplication() = default;
 
     const juce::String getApplicationName() override    { return "MioNo"; }
-    const juce::String getApplicationVersion() override { return "6.2"; }
+    const juce::String getApplicationVersion() override { return "6.3"; }
 
     // 只允许一个实例：已经在状态栏里跑着的时候，再点 exe 不会开出第二个，
     // 而是把原来那个窗口叫出来（音频设备是独占的，开第二个也没意义）。
