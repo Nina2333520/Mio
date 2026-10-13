@@ -314,6 +314,15 @@ public:
     double getBlockMs()   const { return blockMs.load(); }
     int    getXruns()     const { return xruns.load(); }
 
+    // 处理负载 = 单块耗时 / 单块时间预算（跟 REAPER 那个 CPU 表一个意思）
+    float getLoadPercent() const
+    {
+        const double budgetMs = 1000.0 * (double) currentBlockSize
+                                       / juce::jmax (1.0, currentSampleRate);
+        if (budgetMs <= 0.0) return 0.0f;
+        return (float) (blockMs.load() / budgetMs * 100.0);
+    }
+
     // ---------------- 配置存盘 ----------------
     static juce::File defaultConfigFile()
     {

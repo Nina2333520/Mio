@@ -553,6 +553,7 @@ private:
         }
         else if (rack.isRunning())
             s = rack.deviceInfo()
+              + juce::String (L"   占用 ") + juce::String ((double) rack.getLoadPercent(), 1) + L"%"
               + juce::String (L"   单块 ") + juce::String (rack.getBlockMs(), 2) + L" ms"
               + juce::String (L"   丢帧 ") + juce::String (rack.getXruns());
         else
