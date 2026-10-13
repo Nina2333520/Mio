@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 预设 / 机架核心
-//  v6.5：预设快照独立存储、全局控制分离、自动恢复与手动配置文件分流
+//  v6.7：预设快照独立存储、全局控制分离、空灵层默认开启
 // ============================================================================
 #pragma once
 
@@ -44,7 +44,7 @@ inline std::vector<PresetDef> presets()
               mkSlot (FxType::Compressor,      {{"threshold", -20.0f}, {"ratio", 2.5f}, {"attack", 8.0f}, {"release", 120.0f}, {"knee", 6.0f}}),
               mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
           },
-          false, -8.0f, {} },
+          true, -8.0f, {} },
 
         { L"唱歌",
           {
@@ -57,7 +57,7 @@ inline std::vector<PresetDef> presets()
               mkSlot (FxType::Delay,           {{"time", 250.0f}, {"feedback", 0.25f}, {"wet", -18.0f}}),
               mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 60.0f}}),
           },
-          false, -8.0f, {} },
+          true, -8.0f, {} },
 
         { L"空灵",
           {
@@ -69,8 +69,8 @@ inline std::vector<PresetDef> presets()
               mkSlot (FxType::Octave,          {{"mix", -14.0f}}),
               mkSlot (FxType::Limiter,         {{"ceiling", -1.0f}, {"release", 80.0f}}),
           },
-          // 空灵层默认【关】—— 想要那层空间感就在「✨ 空灵层」标签页里勾「空灵层开」
-          false, -8.0f,
+          // 空灵层默认开启；需要干声时可在「✨ 空灵层」标签页手动关闭。
+          true, -8.0f,
           {
               mkSlot (FxType::Reverb,          {{"size", 0.88f}, {"damp", 0.30f}, {"wet", -2.0f}}),
               mkSlot (FxType::Delay,           {{"time", 480.0f}, {"feedback", 0.36f}, {"wet", -11.0f}}),
@@ -86,7 +86,7 @@ inline std::vector<PresetDef> presets()
               mkSlot (FxType::Compressor,      {{"threshold", -22.0f}, {"ratio", 4.0f}, {"attack", 6.0f}, {"release", 90.0f}, {"knee", 4.0f}}),
               mkSlot (FxType::Limiter,         {{"ceiling", -0.8f}, {"release", 50.0f}}),
           },
-          false, -8.0f, {} },
+          true, -8.0f, {} },
     };
 }
 
@@ -413,7 +413,7 @@ public:
     juce::String saveConfig (const juce::File& f) const
     {
         auto* o = new juce::DynamicObject();
-        o->setProperty ("version",   8);
+        o->setProperty ("version",   9);
         o->setProperty ("preset",    presetIndex);
         o->setProperty ("inGain",    (double) inputGainDb.load());
         o->setProperty ("outGain",   (double) outputGainDb.load());
@@ -467,6 +467,7 @@ public:
         auto newSlots = slotsFromVar (chainData);
         auto newLayerSlots = layerData.isArray() ? slotsFromVar (layerData)
                                                  : std::vector<FxSlot>();
+        const int storedConfigVersion = (int) root.getProperty ("version", 0);
         const int storedPreset = (int) root.getProperty ("preset", 1);
         const int newPreset = (storedPreset >= 0 && storedPreset <= customPresetIndex())
                                 ? storedPreset : 1;
@@ -484,8 +485,12 @@ public:
         const float newPan = (float) (double) root.getProperty ("pan", 0.0);
         const float newLayerGain = (float) (double) root.getProperty ("layerGain", -8.0);
         const float newCustomLayerGain = (float) (double) root.getProperty ("customLayerGain", -8.0);
-        const bool newLayerOn = (bool) root.getProperty ("layerOn", false);
+        bool newLayerOn = (bool) root.getProperty ("layerOn", true);
         const bool newCustomLayerOn = (bool) root.getProperty ("customLayerOn", false);
+        // v8 及更早版本的内置预设默认把空灵层关掉；升级后采用新默认开启。
+        // 自定义预设保留用户明确保存的开关状态。
+        if (storedConfigVersion < 9 && newPreset != customPresetIndex())
+            newLayerOn = true;
 
         inputGainDb.store (juce::jlimit (-24.0f, 24.0f, newInGain));
         outputGainDb.store (juce::jlimit (-24.0f, 24.0f, newOutGain));
@@ -739,7 +744,7 @@ private:
     std::atomic<bool>  inClip      { false };
     std::atomic<bool>  bypassAll   { false };
     std::atomic<bool>  trayOnClose { true };   // 关窗口时缩到状态栏
-    std::atomic<bool>  layerOn     { false };
+    std::atomic<bool>  layerOn     { true };
     std::atomic<float> layerGainDb { -8.0f };
     std::atomic<float> inputGainDb { 0.0f };
     std::atomic<float> outputGainDb{ 0.0f };

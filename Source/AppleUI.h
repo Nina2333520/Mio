@@ -1,12 +1,13 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.5：界面照 Python 版重排（设备卡/预设卡/标签页）、效果图标、可缩到状态栏
+//  v6.7：标题栏动漫头像；空灵层默认开启
 // ============================================================================
 #pragma once
 
 #include <JuceHeader.h>
 #include "Rack.h"
 #include "AppleLookAndFeel.h"
+#include "AvatarData.h"
 
 namespace miono
 {
@@ -387,7 +388,11 @@ private:
 class TitleBar : public juce::Component
 {
 public:
-    TitleBar (Rack& r) : rack (r)
+    TitleBar (Rack& r)
+        : rack (r),
+          avatarImage (juce::ImageFileFormat::loadFrom (
+              (const void*) resources::kMioNoAvatarPng,
+              resources::kMioNoAvatarPngSize))
     {
         addAndMakeVisible (lampAsio);
         addAndMakeVisible (lampRun);
@@ -419,11 +424,20 @@ public:
         const float ax = 15.0f + d * 3.0f + gap * 2.0f + 14.0f;
         const float asz = 30.0f;
         juce::Rectangle<float> av (ax, cy - asz * 0.5f, asz, asz);
-        g.setColour (AppleColors::Acc.withAlpha (0.16f));
-        g.fillEllipse (av);
-        g.setColour (AppleColors::Acc);
-        g.setFont (AppleLookAndFeel::getBoldFont (13.0f));
-        g.drawText ("M", av, juce::Justification::centred, false);
+        if (avatarImage.isValid())
+        {
+            g.drawImageWithin (avatarImage, (int) av.getX(), (int) av.getY(),
+                               (int) av.getWidth(), (int) av.getHeight(),
+                               juce::RectanglePlacement::centred);
+        }
+        else
+        {
+            g.setColour (AppleColors::Acc.withAlpha (0.16f));
+            g.fillEllipse (av);
+            g.setColour (AppleColors::Acc);
+            g.setFont (AppleLookAndFeel::getBoldFont (13.0f));
+            g.drawText ("M", av, juce::Justification::centred, false);
+        }
 
         g.setColour (AppleColors::Txt);
         g.setFont (AppleLookAndFeel::getBoldFont (14.5f));
@@ -491,7 +505,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.5";
+    static constexpr const char* VERSION  = "v6.7";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
@@ -501,6 +515,7 @@ private:
     }
 
     Rack& rack;
+    juce::Image avatarImage;
     Lamp lampAsio { L"ASIO", AppleColors::Acc };
     Lamp lampRun  { L"运行", AppleColors::Green };
     juce::Point<int> dragStart, dragWinStart;
