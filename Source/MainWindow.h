@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主窗口（无边框苹果风）
-//  v6.4：界面照 Python 版 MioNo.py 重排 —— ① 设备卡 / ② 预设卡 / ③ 标签页 / 状态栏
+//  v6.5：预设快照与全局控制分离；自动恢复与手动配置文件分开
 //        空灵层默认关闭；可以缩到状态栏（托盘）
 // ============================================================================
 #pragma once
@@ -59,7 +59,16 @@ public:
             addAndMakeVisible (c);
         }
 
-        cbHost.onChange = [this] { refreshDevices(); };
+        cbHost.onChange = [this]
+        {
+            refreshDevices();
+            updatePreferredDeviceSettings();
+            settingsChanged();
+        };
+        cbIn.onChange = [this] { updatePreferredDeviceSettings(); settingsChanged(); };
+        cbOut.onChange = [this] { updatePreferredDeviceSettings(); settingsChanged(); };
+        cbRate.onChange = [this] { updatePreferredDeviceSettings(); settingsChanged(); };
+        cbBlock.onChange = [this] { updatePreferredDeviceSettings(); settingsChanged(); };
         cbRate.addItem ("44100", 1);
         cbRate.addItem ("48000", 2);
         cbRate.addItem ("96000", 3);
@@ -205,19 +214,29 @@ public:
 
         // 自动恢复上次本地配置；不用每次手动点“载入配置”。
         const auto localConfig = Rack::defaultConfigFile();
-        bool restored = false;
-        if (localConfig.existsAsFile())
+        auto restoreFile = localConfig;
+        bool migratedLegacyConfig = false;
+        if (! restoreFile.existsAsFile() && Rack::legacyConfigFile().existsAsFile())
         {
-            const auto err = rack.loadConfig (localConfig);
+            restoreFile = Rack::legacyConfigFile();
+            migratedLegacyConfig = true;
+        }
+
+        bool restored = false;
+        if (restoreFile.existsAsFile())
+        {
+            const auto err = rack.loadConfig (restoreFile);
             if (err.isEmpty()) restored = true;
             else status = err;
         }
         afterConfigLoaded();
-        refreshAll();
         if (restored)
+        {
+            if (migratedLegacyConfig) queueAutoSave();
             status = rack.getPresetIndex() == Rack::customPresetIndex()
                         ? juce::String (L"已恢复本地自定义效果链")
                         : juce::String (L"已恢复上次本地配置");
+        }
 
         startTimerHz (24);
     }
@@ -402,39 +421,84 @@ private:
     }
 
     // ---------------- 刷新 ----------------
-    void refreshAll()
+    void refreshAll (bool restoreSaved = false)
     {
+        const auto wantedHost = restoreSaved ? rack.getPreferredHost() : cbHost.getText();
+        const auto wantedInput = restoreSaved ? rack.getPreferredInputName() : cbIn.getText();
+        const auto wantedOutput = restoreSaved ? rack.getPreferredOutputName() : cbOut.getText();
+        const auto wantedRate = restoreSaved ? juce::String (rack.getPreferredSampleRate(), 0)
+                                             : cbRate.getText();
+        const int wantedBlock = restoreSaved ? rack.getPreferredBlockSize()
+                                             : cbBlock.getSelectedId() == 1 ? 0
+                                             : cbBlock.getSelectedId() == 2 ? 128
+                                             : cbBlock.getSelectedId() == 4 ? 512
+                                             : cbBlock.getSelectedId() == 5 ? 1024 : 256;
+
         cbHost.clear (juce::dontSendNotification);
-        auto hosts = Rack::listHostTypes();
+        const auto hosts = Rack::listHostTypes();
         for (int i = 0; i < hosts.size(); ++i)
             cbHost.addItem (hosts[i], i + 1);
 
+        int selectedHostId = 0;
         int asioId = 0;
         for (int i = 0; i < hosts.size(); ++i)
-            if (hosts[i].containsIgnoreCase ("asio")) { asioId = i + 1; break; }
+        {
+            if (hosts[i] == wantedHost) selectedHostId = i + 1;
+            if (hosts[i].containsIgnoreCase ("asio")) asioId = i + 1;
+        }
+        if (selectedHostId == 0)
+            selectedHostId = asioId > 0 ? asioId : (hosts.isEmpty() ? 0 : 1);
+        cbHost.setSelectedId (selectedHostId, juce::dontSendNotification);
 
-        cbHost.setSelectedId (asioId > 0 ? asioId : (hosts.isEmpty() ? 0 : 1),
-                              juce::dontSendNotification);
-        refreshDevices();
+        refreshDevices (wantedInput, wantedOutput);
+
+        int rateId = 2; // 无效/过时配置默认回到 48 kHz
+        for (int i = 0; i < cbRate.getNumItems(); ++i)
+            if (cbRate.getItemText (i) == wantedRate) { rateId = i + 1; break; }
+        cbRate.setSelectedId (rateId, juce::dontSendNotification);
+
+        const int blockId = wantedBlock == 0 ? 1
+                          : wantedBlock == 128 ? 2
+                          : wantedBlock == 512 ? 4
+                          : wantedBlock == 1024 ? 5 : 3;
+        cbBlock.setSelectedId (blockId, juce::dontSendNotification);
+        updatePreferredDeviceSettings();
     }
 
-    void refreshDevices()
+    void refreshDevices (const juce::String& preferredInput = juce::String(),
+                         const juce::String& preferredOutput = juce::String())
     {
         const auto host = cbHost.getText();
+        const auto wantedInput = preferredInput.isNotEmpty() ? preferredInput : cbIn.getText();
+        const auto wantedOutput = preferredOutput.isNotEmpty() ? preferredOutput : cbOut.getText();
 
         cbIn.clear (juce::dontSendNotification);
-        auto ins = Rack::listDevices (host, true);
+        const auto ins = Rack::listDevices (host, true);
         for (int i = 0; i < ins.size(); ++i)
             cbIn.addItem (ins[i], i + 1);
-        if (! ins.isEmpty())
-            cbIn.setSelectedId (1, juce::dontSendNotification);
+        int inId = 0;
+        for (int i = 0; i < ins.size(); ++i)
+            if (ins[i] == wantedInput) { inId = i + 1; break; }
+        cbIn.setSelectedId (inId > 0 ? inId : (ins.isEmpty() ? 0 : 1), juce::dontSendNotification);
 
         cbOut.clear (juce::dontSendNotification);
-        auto outs = Rack::listDevices (host, false);
+        const auto outs = Rack::listDevices (host, false);
         for (int i = 0; i < outs.size(); ++i)
             cbOut.addItem (outs[i], i + 1);
-        if (! outs.isEmpty())
-            cbOut.setSelectedId (1, juce::dontSendNotification);
+        int outId = 0;
+        for (int i = 0; i < outs.size(); ++i)
+            if (outs[i] == wantedOutput) { outId = i + 1; break; }
+        cbOut.setSelectedId (outId > 0 ? outId : (outs.isEmpty() ? 0 : 1), juce::dontSendNotification);
+    }
+
+    void updatePreferredDeviceSettings()
+    {
+        const int blockId = cbBlock.getSelectedId();
+        const int blockSize = blockId == 1 ? 0 : blockId == 2 ? 128
+                            : blockId == 4 ? 512 : blockId == 5 ? 1024 : 256;
+        const double rate = cbRate.getText().getDoubleValue();
+        rack.setPreferredDeviceSettings (cbHost.getText(), cbIn.getText(), cbOut.getText(),
+                                         rate > 0.0 ? rate : 48000.0, blockSize);
     }
 
     // ---------------- 预设 ----------------
@@ -511,6 +575,7 @@ private:
         if (! autoSavePending) return;
         autoSavePending = false;
         autoSaveTicks = 0;
+        updatePreferredDeviceSettings();
         const auto f = Rack::defaultConfigFile();
         const auto err = rack.saveConfig (f);
         if (err.isNotEmpty())
@@ -528,8 +593,9 @@ private:
         }
         else
         {
-            const double sr = cbRate.getText().getDoubleValue();
-            const int    bs = cbBlock.getText().getIntValue();
+            updatePreferredDeviceSettings();
+            const double sr = rack.getPreferredSampleRate();
+            const int    bs = rack.getPreferredBlockSize();
             const auto err = rack.start (cbHost.getText(), cbIn.getText(), cbOut.getText(), sr, bs);
             if (err.isNotEmpty())
             {
@@ -568,43 +634,60 @@ private:
 
     void saveConfig()
     {
-        auto f = Rack::defaultConfigFile();
-        const auto err = rack.saveConfig (f);
-        autoSavePending = false;
-        autoSaveTicks = 0;
-        status = err.isEmpty() ? (juce::String (L"已保存：") + f.getFullPathName()) : err;
+        // 手动保存是“导出一个命名配置”，与后台自动恢复文件分开，避免互相覆盖。
+        updatePreferredDeviceSettings();
+        const auto initial = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                 .getChildFile (juce::String (L"MioNo配置.json"));
+        chooser = std::make_unique<juce::FileChooser> (L"另存为配置文件", initial, "*.json");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                | juce::FileBrowserComponent::canSelectFiles
+                                | juce::FileBrowserComponent::warnAboutOverwriting,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto target = fc.getResult();
+                if (target.getFullPathName().isEmpty()) return;
+                if (! target.getFileExtension().equalsIgnoreCase (".json"))
+                    target = target.withFileExtension (".json");
+
+                const auto err = rack.saveConfig (target);
+                status = err.isEmpty()
+                            ? (juce::String (L"配置已另存为：") + target.getFileName())
+                            : err;
+            });
     }
 
     void loadConfig()
     {
-        auto f = Rack::defaultConfigFile();
+        // 每次都选文件；不再静默重载自动保存文件，避免“载入配置”看起来没反应。
+        const auto initial = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+        chooser = std::make_unique<juce::FileChooser> (L"选择要载入的配置", initial, "*.json");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                const auto picked = fc.getResult();
+                if (picked.getFullPathName().isEmpty()) return;
 
-        if (! f.existsAsFile())
-        {
-            chooser = std::make_unique<juce::FileChooser> (
-                          L"选择配置文件", f.getParentDirectory(), "*.json");
-            chooser->launchAsync (juce::FileBrowserComponent::openMode
-                                    | juce::FileBrowserComponent::canSelectFiles,
-                [this] (const juce::FileChooser& fc)
+                const auto err = rack.loadConfig (picked);
+                if (err.isEmpty())
                 {
-                    auto picked = fc.getResult();
-                    if (picked.getFullPathName().isEmpty()) return;
-                    const auto err = rack.loadConfig (picked);
-                    status = err.isEmpty() ? (juce::String (L"已载入：") + picked.getFileName()) : err;
                     afterConfigLoaded();
-                    if (err.isEmpty()) queueAutoSave();
-                });
-            return;
-        }
-
-        const auto err = rack.loadConfig (f);
-        status = err.isEmpty() ? (juce::String (L"已载入：") + f.getFileName()) : err;
-        afterConfigLoaded();
-        if (err.isEmpty()) queueAutoSave();
+                    queueAutoSave();
+                    status = juce::String (L"已载入配置：") + picked.getFileName()
+                           + (rack.isRunning()
+                                  ? juce::String (L"（设为本机恢复状态；设备更改需重新开流生效）")
+                                  : juce::String (L"（已设为本机下次启动恢复状态）"));
+                }
+                else
+                {
+                    status = err;
+                }
+            });
     }
 
     void afterConfigLoaded()
     {
+        refreshAll (true);
         syncGlobalControls();
         trayOnClose = rack.getTrayOnClose();
         tgTray.setToggleState (trayOnClose, juce::dontSendNotification);

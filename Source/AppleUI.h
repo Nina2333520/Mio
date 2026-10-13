@@ -1,6 +1,6 @@
 // ============================================================================
 //  MioNo - 主界面组件（苹果风无边框窗口）
-//  v6.4：界面照 Python 版重排（设备卡/预设卡/标签页）、效果图标、可缩到状态栏
+//  v6.5：界面照 Python 版重排（设备卡/预设卡/标签页）、效果图标、可缩到状态栏
 // ============================================================================
 #pragma once
 
@@ -491,7 +491,7 @@ public:
     }
 
     static constexpr const char* APP_NAME = "MioNo";
-    static constexpr const char* VERSION  = "v6.4";
+    static constexpr const char* VERSION  = "v6.5";
 
 private:
     static void drawDot (juce::Graphics& g, float x, float cy, float d, juce::Colour c)
