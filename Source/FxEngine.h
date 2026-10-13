@@ -86,6 +86,7 @@ inline const wchar_t* presetIcon (int index)
         case 1:  return L"\U0001F3A4";   // 🎤 唱歌
         case 2:  return L"\U0001F30C";   // 🌌 空灵
         case 3:  return L"\U0001F4FB";   // 📻 电台厚声
+        case 4:  return L"\U00002B50";   // ⭐ 自定义
         default: return L"•";
     }
 }

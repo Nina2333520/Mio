@@ -36,4 +36,12 @@ and .github/workflows/build.yml, are the corresponding source/build inputs for
 the generated Windows binary. Retain this notice and both license texts with
 redistributed builds.
 
+Microsoft Visual C++ Runtime and Universal CRT
+------------------------------------------------
+Windows release archives include x64 VC143 CRT and Universal CRT DLLs copied
+unmodified from the Visual Studio and Windows SDK redistributable directories
+on the GitHub Actions runner for app-local deployment. These Microsoft files
+remain subject to Microsoft's applicable Visual Studio/Windows SDK license
+terms; this project does not include or modify their source code.
+
 No Steinberg ASIO logo or artwork is included in MioNo.

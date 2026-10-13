@@ -430,6 +430,86 @@ jobs:
           Write-Output "发布内容："
           Get-ChildItem $dir -Recurse | Select-Object FullName, Length
 
+      - name: 随包部署 MSVC 与 UCRT 运行库
+        shell: pwsh
+        run: |
+          # 使用当前 VS 2022 安装中与本次编译器匹配的 x64 VC143 CRT，
+          # 并从 Windows SDK Redist 取 UCRT，全部作为 app-local DLL 随包发布。
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            Write-Output "::error::找不到 vswhere，无法定位 Visual C++ 运行库"
+            exit 1
+          }
+
+          $vsInstall = (& $vswhere -latest -products '*' -property installationPath | Select-Object -First 1)
+          if (-not $vsInstall) {
+            Write-Output "::error::vswhere 未返回 Visual Studio 安装路径"
+            exit 1
+          }
+          $vsInstall = $vsInstall.Trim()
+
+          $vcRedistRoot = Join-Path $vsInstall "VC\Redist\MSVC"
+          $vcVersion = Get-ChildItem -Path $vcRedistRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName "x64\Microsoft.VC143.CRT") } |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+          if (-not $vcVersion) {
+            Write-Output "::error::找不到 x64 Microsoft.VC143.CRT 运行库目录：$vcRedistRoot"
+            exit 1
+          }
+          $vcCrtDir = Join-Path $vcVersion.FullName "x64\Microsoft.VC143.CRT"
+          $vcPayload = Get-ChildItem -Path $vcCrtDir -File |
+            Where-Object { $_.Extension -in @(".dll", ".manifest") }
+          if (-not $vcPayload) {
+            Write-Output "::error::VC143 CRT 目录中没有 DLL/manifest：$vcCrtDir"
+            exit 1
+          }
+          Copy-Item -Path $vcPayload.FullName -Destination "release/MioNo" -Force
+          Write-Output "已加入 VC143 CRT：$vcCrtDir"
+
+          $kitsRedistRoot = Join-Path "${env:ProgramFiles(x86)}" "Windows Kits\10\Redist"
+          $ucrtVersion = Get-ChildItem -Path $kitsRedistRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName "ucrt\DLLs\x64\ucrtbase.dll") } |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+          if (-not $ucrtVersion) {
+            Write-Output "::error::找不到 Windows SDK x64 UCRT Redist：$kitsRedistRoot"
+            exit 1
+          }
+          $ucrtDir = Join-Path $ucrtVersion.FullName "ucrt\DLLs\x64"
+          $ucrtPayload = Get-ChildItem -Path $ucrtDir -Filter "*.dll" -File
+          if (-not $ucrtPayload) {
+            Write-Output "::error::Windows SDK UCRT Redist 目录没有 DLL：$ucrtDir"
+            exit 1
+          }
+          Copy-Item -Path $ucrtPayload.FullName -Destination "release/MioNo" -Force
+          Write-Output "已加入 UCRT DLL：$ucrtDir"
+
+          # 发布前检查当前 EXE 的关键动态运行库都已落在同一目录。
+          $required = @(
+            "VCRUNTIME140.dll",
+            "VCRUNTIME140_1.dll",
+            "MSVCP140.dll",
+            "ucrtbase.dll",
+            "api-ms-win-crt-heap-l1-1-0.dll",
+            "api-ms-win-crt-runtime-l1-1-0.dll",
+            "api-ms-win-crt-math-l1-1-0.dll",
+            "api-ms-win-crt-time-l1-1-0.dll",
+            "api-ms-win-crt-string-l1-1-0.dll",
+            "api-ms-win-crt-stdio-l1-1-0.dll",
+            "api-ms-win-crt-convert-l1-1-0.dll",
+            "api-ms-win-crt-locale-l1-1-0.dll",
+            "api-ms-win-crt-utility-l1-1-0.dll",
+            "api-ms-win-crt-environment-l1-1-0.dll"
+          )
+          $missing = $required | Where-Object { -not (Test-Path (Join-Path "release/MioNo" $_)) }
+          if ($missing) {
+            Write-Output "::error::发布包缺少运行库：$($missing -join ', ')"
+            exit 1
+          }
+          $dllCount = (Get-ChildItem "release/MioNo" -Filter "*.dll" -File).Count
+          Write-Output "::notice::已随包部署并校验 MSVC/UCRT 运行库，共 $dllCount 个 DLL；无需单独安装 VC++ Redistributable。"
+
       - name: 打包 zip
         shell: pwsh
         run: |

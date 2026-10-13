@@ -75,7 +75,11 @@ public:
         setupButton (btnStart,   L"▶ 启动", [this] { toggleStart(); });
 
         tgBypass.setButtonText (L"旁通全部效果（对比原声）");
-        tgBypass.onClick = [this] { rack.setBypass (tgBypass.getToggleState()); };
+        tgBypass.onClick = [this]
+        {
+            rack.setBypass (tgBypass.getToggleState());
+            settingsChanged();
+        };
         addAndMakeVisible (tgBypass);
 
         tgAuto.setButtonText (L"开机自启");
@@ -98,6 +102,7 @@ public:
             rack.setTrayOnClose (trayOnClose);
             status = trayOnClose ? juce::String (L"关窗口 = 缩到状态栏（右键图标可退出）")
                                  : juce::String (L"关窗口 = 直接退出程序");
+            settingsChanged();
         };
         addAndMakeVisible (tgTray);
 
@@ -107,17 +112,21 @@ public:
         setupGainSlider (slGainOut, -24.0, 24.0, 0.0, " dB");
         setupGainSlider (slPan,      -1.0,  1.0, 0.0, "");
 
-        slGainIn .onValueChange = [this] { rack.setInputGainDb  ((float) slGainIn .getValue()); };
-        slGainOut.onValueChange = [this] { rack.setOutputGainDb ((float) slGainOut.getValue()); };
+        slGainIn .onValueChange = [this]
+        {
+            rack.setInputGainDb ((float) slGainIn.getValue());
+            settingsChanged();
+        };
+        slGainOut.onValueChange = [this]
+        {
+            rack.setOutputGainDb ((float) slGainOut.getValue());
+            settingsChanged();
+        };
         slPan    .onValueChange = [this]
         {
             rack.setPan ((float) slPan.getValue());
-            const int v = (int) std::round (slPan.getValue() * 100.0);
-            const int av = (v < 0 ? -v : v);
-            lblPanVal.setText (av < 3 ? juce::String (L"居中")
-                                                : (v < 0 ? juce::String (L"左 ") + juce::String (-v) + L"%"
-                                                         : juce::String (L"右 ") + juce::String (v) + L"%"),
-                               juce::dontSendNotification);
+            updatePanLabel();
+            settingsChanged();
         };
 
         lblPanVal.setText (L"居中", juce::dontSendNotification);
@@ -162,12 +171,19 @@ public:
             b->onClick = [this, i] { applyPreset (i); };
             addAndMakeVisible (b);
         }
+        auto* customButton = presetButtons.add (new juce::TextButton());
+        customButton->setButtonText (juce::String (presetIcon (Rack::customPresetIndex())) + L" 自定义");
+        customButton->setClickingTogglesState (true);
+        customButton->setRadioGroupId (2001, juce::dontSendNotification);
+        customButton->onClick = [this] { applyPreset (Rack::customPresetIndex()); };
+        addAndMakeVisible (customButton);
+
         setupButton (btnSave, L"💾 保存配置", [this] { saveConfig(); });
         setupButton (btnLoad, L"📂 载入配置", [this] { loadConfig(); });
 
         // ---------------- ③ 标签页（主效果链 / 空灵层）----------------
-        pageMain.onChanged  = [this] { title.refresh(); };
-        pageLayer.onChanged = [this] { title.refresh(); };
+        pageMain.onChanged  = [this] { chainEdited(); };
+        pageLayer.onChanged = [this] { chainEdited(); };
 
         tabs.setTabBarDepth (34);
         tabs.setOutline (1);
@@ -187,14 +203,30 @@ public:
         title.onMinimise = [this] { if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setMinimised (true); };
         title.onMaximise = [this] { toggleMaximise(); };
 
-        // 进来就按当前预设摆好（不弹提示）
-        applyPreset (rack.getPresetIndex());
-        status.clear();
+        // 自动恢复上次本地配置；不用每次手动点“载入配置”。
+        const auto localConfig = Rack::defaultConfigFile();
+        bool restored = false;
+        if (localConfig.existsAsFile())
+        {
+            const auto err = rack.loadConfig (localConfig);
+            if (err.isEmpty()) restored = true;
+            else status = err;
+        }
+        afterConfigLoaded();
+        refreshAll();
+        if (restored)
+            status = rack.getPresetIndex() == Rack::customPresetIndex()
+                        ? juce::String (L"已恢复本地自定义效果链")
+                        : juce::String (L"已恢复上次本地配置");
 
         startTimerHz (24);
     }
 
-    ~MainComponent() override { rack.stop(); }
+    ~MainComponent() override
+    {
+        flushAutoSave();
+        rack.stop();
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -406,17 +438,83 @@ private:
     }
 
     // ---------------- 预设 ----------------
+    void updatePanLabel()
+    {
+        const int v = (int) std::round (slPan.getValue() * 100.0);
+        const int av = (v < 0 ? -v : v);
+        lblPanVal.setText (av < 3 ? juce::String (L"居中")
+                                  : (v < 0 ? juce::String (L"左 ") + juce::String (-v) + L"%"
+                                           : juce::String (L"右 ") + juce::String (v) + L"%"),
+                           juce::dontSendNotification);
+    }
+
+    void syncGlobalControls()
+    {
+        slGainIn .setValue ((double) rack.getInputGainDb(),  juce::dontSendNotification);
+        slGainOut.setValue ((double) rack.getOutputGainDb(), juce::dontSendNotification);
+        slPan    .setValue ((double) rack.getPan(),          juce::dontSendNotification);
+        tgBypass .setToggleState (rack.getBypass(), juce::dontSendNotification);
+        updatePanLabel();
+    }
+
     void applyPreset (int idx)
     {
         rack.applyPreset (idx);
-        for (int i = 0; i < presetButtons.size(); ++i)
-            presetButtons[i]->setToggleState (i == idx, juce::dontSendNotification);
+        syncGlobalControls();
+        updatePresetButtons();
         pageMain.refresh();
         pageLayer.refresh();
 
         const auto ps = presets();
-        status = juce::String (L"已套用预设：") + juce::String (presetIcon (idx)) + L" "
-               + (idx >= 0 && idx < (int) ps.size() ? ps[(size_t) idx].name : juce::String());
+        const juce::String name = idx == Rack::customPresetIndex()
+                                    ? juce::String (L"自定义")
+                                    : (idx >= 0 && idx < (int) ps.size()
+                                           ? juce::String (ps[(size_t) idx].name)
+                                           : juce::String());
+        status = juce::String (L"已切换：") + juce::String (presetIcon (idx)) + L" " + name;
+        queueAutoSave();
+    }
+
+    void updatePresetButtons()
+    {
+        const int active = rack.getPresetIndex();
+        for (int i = 0; i < presetButtons.size(); ++i)
+            presetButtons[i]->setToggleState (i == active, juce::dontSendNotification);
+    }
+
+    void chainEdited()
+    {
+        const bool wasCustom = rack.getPresetIndex() == Rack::customPresetIndex();
+        rack.captureCustomPreset();
+        updatePresetButtons();
+        if (! wasCustom)
+            status = L"效果链已切换到自定义，并会自动保存在本机";
+        queueAutoSave();
+        title.refresh();
+    }
+
+    void settingsChanged()
+    {
+        if (rack.getPresetIndex() == Rack::customPresetIndex())
+            rack.captureCustomPreset();
+        queueAutoSave();
+    }
+
+    void queueAutoSave()
+    {
+        autoSavePending = true;
+        autoSaveTicks = 0;
+    }
+
+    void flushAutoSave()
+    {
+        if (! autoSavePending) return;
+        autoSavePending = false;
+        autoSaveTicks = 0;
+        const auto f = Rack::defaultConfigFile();
+        const auto err = rack.saveConfig (f);
+        if (err.isNotEmpty())
+            status = juce::String (L"本地自动保存失败：") + err;
     }
 
     // ---------------- 动作 ----------------
@@ -472,6 +570,8 @@ private:
     {
         auto f = Rack::defaultConfigFile();
         const auto err = rack.saveConfig (f);
+        autoSavePending = false;
+        autoSaveTicks = 0;
         status = err.isEmpty() ? (juce::String (L"已保存：") + f.getFullPathName()) : err;
     }
 
@@ -492,6 +592,7 @@ private:
                     const auto err = rack.loadConfig (picked);
                     status = err.isEmpty() ? (juce::String (L"已载入：") + picked.getFileName()) : err;
                     afterConfigLoaded();
+                    if (err.isEmpty()) queueAutoSave();
                 });
             return;
         }
@@ -499,20 +600,16 @@ private:
         const auto err = rack.loadConfig (f);
         status = err.isEmpty() ? (juce::String (L"已载入：") + f.getFileName()) : err;
         afterConfigLoaded();
+        if (err.isEmpty()) queueAutoSave();
     }
 
     void afterConfigLoaded()
     {
-        slGainIn .setValue ((double) rack.getInputGainDb(),  juce::dontSendNotification);
-        slGainOut.setValue ((double) rack.getOutputGainDb(), juce::dontSendNotification);
-        slPan    .setValue ((double) rack.getPan(),          juce::dontSendNotification);
-        tgBypass .setToggleState (rack.getBypass(), juce::dontSendNotification);
+        syncGlobalControls();
         trayOnClose = rack.getTrayOnClose();
         tgTray.setToggleState (trayOnClose, juce::dontSendNotification);
 
-        const int pi = rack.getPresetIndex();
-        for (int i = 0; i < presetButtons.size(); ++i)
-            presetButtons[i]->setToggleState (i == pi, juce::dontSendNotification);
+        updatePresetButtons();
 
         pageMain.refresh();
         pageLayer.refresh();
@@ -520,6 +617,9 @@ private:
 
     void timerCallback() override
     {
+        if (autoSavePending && ++autoSaveTicks >= 12)  // 约 0.5 秒防抖
+            flushAutoSave();
+
         const bool running = rack.isRunning();
 
         barIn .setLevels (rack.getInLevel(),  rack.getInRms());
@@ -608,6 +708,8 @@ private:
     bool maximised   = false;
     int  clipTicks   = 0;
     int  statusTicks = 0;
+    int  autoSaveTicks = 0;
+    bool autoSavePending = false;
     juce::Rectangle<int> restoreBounds;
     juce::String status;
     std::unique_ptr<juce::FileChooser> chooser;

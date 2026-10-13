@@ -257,10 +257,64 @@ public:
     void  setPan (float p)           { pan.store (juce::jlimit (-1.0f, 1.0f, p)); }
     float getPan()           const   { return pan.load(); }
 
-    // ---------------- 效果链 ----------------
+    // ---------------- 效果链 / 自定义预设 ----------------
+    static constexpr int customPresetIndex() { return 4; }
+    int getPresetIndex() const { return presetIndex; }
+    bool hasCustomPreset() const { return customPresetValid; }
+
+    /** 当前编辑完成后快照为“自定义”。切换内置预设不会改写这份快照。 */
+    void captureCustomPreset()
+    {
+        const juce::ScopedLock sl (chainLock);
+        customSlots      = slots;
+        customLayerSlots = layerSlots;
+        customLayerOn.store (layerOn.load());
+        customLayerGainDb.store (layerGainDb.load());
+        customInputGainDb.store (inputGainDb.load());
+        customOutputGainDb.store (outputGainDb.load());
+        customPan.store (pan.load());
+        customBypass.store (bypassAll.load());
+        customPresetValid = true;
+        presetIndex = customPresetIndex();
+    }
+
     void applyPreset (int idx)
     {
         auto ps = presets();
+        if (idx == customPresetIndex())
+        {
+            {
+                const juce::ScopedLock sl (chainLock);
+                if (! customPresetValid)
+                {
+                    // 第一次点“自定义”：用当前声音作底稿，不从空链开始。
+                    customSlots      = slots;
+                    customLayerSlots = layerSlots;
+                    customLayerOn.store (layerOn.load());
+                    customLayerGainDb.store (layerGainDb.load());
+                    customInputGainDb.store (inputGainDb.load());
+                    customOutputGainDb.store (outputGainDb.load());
+                    customPan.store (pan.load());
+                    customBypass.store (bypassAll.load());
+                    customPresetValid = true;
+                }
+                else
+                {
+                    slots      = customSlots;
+                    layerSlots = customLayerSlots;
+                    layerOn.store (customLayerOn.load());
+                    layerGainDb.store (customLayerGainDb.load());
+                    inputGainDb.store (customInputGainDb.load());
+                    outputGainDb.store (customOutputGainDb.load());
+                    pan.store (customPan.load());
+                    bypassAll.store (customBypass.load());
+                }
+                presetIndex = customPresetIndex();
+            }
+            rebuild();
+            return;
+        }
+
         if (idx < 0 || idx >= (int) ps.size()) idx = 0;
         presetIndex = idx;
         {
@@ -272,8 +326,6 @@ public:
         layerGainDb.store (ps[(size_t) idx].layerGainDb);
         rebuild();
     }
-
-    int getPresetIndex() const { return presetIndex; }
 
     std::vector<FxSlot>& getSlots()      { return slots; }
     std::vector<FxSlot>& getLayerSlots() { return layerSlots; }
@@ -350,7 +402,7 @@ public:
     juce::String saveConfig (const juce::File& f) const
     {
         auto* o = new juce::DynamicObject();
-        o->setProperty ("version",   6);
+        o->setProperty ("version",   7);
         o->setProperty ("preset",    presetIndex);
         o->setProperty ("inGain",    (double) inputGainDb.load());
         o->setProperty ("outGain",   (double) outputGainDb.load());
@@ -369,7 +421,16 @@ public:
             const juce::ScopedLock sl (chainLock);
             o->setProperty ("chain", slotsToVar (slots));
             o->setProperty ("layer", slotsToVar (layerSlots));
+            o->setProperty ("customValid", customPresetValid);
+            o->setProperty ("customChain", slotsToVar (customSlots));
+            o->setProperty ("customLayer", slotsToVar (customLayerSlots));
         }
+        o->setProperty ("customLayerOn",   customLayerOn.load());
+        o->setProperty ("customLayerGain", (double) customLayerGainDb.load());
+        o->setProperty ("customInGain",    (double) customInputGainDb.load());
+        o->setProperty ("customOutGain",   (double) customOutputGainDb.load());
+        o->setProperty ("customPan",       (double) customPan.load());
+        o->setProperty ("customBypass",    customBypass.load());
 
         const juce::var root (o);
         if (! f.replaceWithText (juce::JSON::toString (root, false)))
@@ -387,9 +448,9 @@ public:
         if (! root.isObject())
             return L"配置文件格式不对";
 
-        const int pi = (int) root.getProperty ("preset", 1);
-        if (pi >= 0 && pi < (int) presets().size())
-            presetIndex = pi;
+        const int storedPreset = (int) root.getProperty ("preset", 1);
+        presetIndex = (storedPreset >= 0 && storedPreset <= customPresetIndex())
+                        ? storedPreset : 1;
 
         inputGainDb .store ((float) (double) root.getProperty ("inGain",    0.0));
         outputGainDb.store ((float) (double) root.getProperty ("outGain",   0.0));
@@ -403,10 +464,33 @@ public:
         currentInputName  = root.getProperty ("inDev",  currentInputName).toString();
         currentOutputName = root.getProperty ("outDev", currentOutputName).toString();
 
+        customLayerOn.store ((bool) root.getProperty ("customLayerOn", false));
+        customLayerGainDb.store ((float) (double) root.getProperty ("customLayerGain", -8.0));
+        customInputGainDb.store ((float) (double) root.getProperty ("customInGain", 0.0));
+        customOutputGainDb.store ((float) (double) root.getProperty ("customOutGain", 0.0));
+        customPan.store ((float) (double) root.getProperty ("customPan", 0.0));
+        customBypass.store ((bool) root.getProperty ("customBypass", false));
+
         {
             const juce::ScopedLock sl (chainLock);
             slots      = slotsFromVar (root.getProperty ("chain", juce::var()));
             layerSlots = slotsFromVar (root.getProperty ("layer", juce::var()));
+            customPresetValid = (bool) root.getProperty ("customValid", false);
+            customSlots = slotsFromVar (root.getProperty ("customChain", juce::var()));
+            customLayerSlots = slotsFromVar (root.getProperty ("customLayer", juce::var()));
+            // 兼容旧配置：若旧版只保存了正在使用的自定义链，就将它升级成快照。
+            if (! customPresetValid && presetIndex == customPresetIndex())
+            {
+                customSlots = slots;
+                customLayerSlots = layerSlots;
+                customLayerOn.store (layerOn.load());
+                customLayerGainDb.store (layerGainDb.load());
+                customInputGainDb.store (inputGainDb.load());
+                customOutputGainDb.store (outputGainDb.load());
+                customPan.store (pan.load());
+                customBypass.store (bypassAll.load());
+                customPresetValid = true;
+            }
         }
         rebuild();
         return {};
@@ -608,10 +692,20 @@ private:
     std::vector<FxRuntime> runtimes;
     std::vector<FxSlot>    layerSlots;
     std::vector<FxRuntime> layerRuntimes;
+    std::vector<FxSlot>    customSlots;
+    std::vector<FxSlot>    customLayerSlots;
     juce::CriticalSection  chainLock;
 
     int  presetIndex = 1;
     bool running     = false;
+    bool customPresetValid = false;
+
+    std::atomic<float> customLayerGainDb  { -8.0f };
+    std::atomic<float> customInputGainDb  { 0.0f };
+    std::atomic<float> customOutputGainDb { 0.0f };
+    std::atomic<float> customPan          { 0.0f };
+    std::atomic<bool>  customLayerOn      { false };
+    std::atomic<bool>  customBypass        { false };
 
     std::atomic<float> inRms       { 0.0f };
     std::atomic<bool>  inClip      { false };

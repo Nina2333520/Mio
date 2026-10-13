@@ -595,6 +595,7 @@ public:
             {
                 panel.commit (sl[(size_t) r]);
                 rack.rebuild();
+                if (onChanged) onChanged();
             }
         };
 
@@ -620,7 +621,11 @@ public:
             slLayerGain.setRange (-40.0, 6.0, 0.1);
             slLayerGain.setTextValueSuffix (" dB");
             slLayerGain.setColour (juce::Slider::thumbColourId, AppleColors::Acc);
-            slLayerGain.onValueChange = [this] { rack.setLayerGainDb ((float) slLayerGain.getValue()); };
+            slLayerGain.onValueChange = [this]
+            {
+                rack.setLayerGainDb ((float) slLayerGain.getValue());
+                if (onChanged) onChanged();
+            };
             addAndMakeVisible (slLayerGain);
         }
 
